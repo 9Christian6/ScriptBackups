@@ -1,0 +1,2 @@
+#!/bin/bash
+google-chrome https://calendar.google.com/calendar/u/0/r --new-window
