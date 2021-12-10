@@ -1,4 +1,4 @@
 #!/bin/bash
 google-chrome https://webmail.uni-saarland.de/imp/dynamic.php?page=mailbox https://mail.google.com/mail/u/0/#inbox --new-window
 sleep 1
-exec i3-msg move container to workspace 12
+exec i3-msg "[title=\"$Mails*\"] move to workspace 12"

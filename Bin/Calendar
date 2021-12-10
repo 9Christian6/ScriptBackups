@@ -1,4 +1,4 @@
 #!/bin/bash
 google-chrome https://calendar.google.com/calendar/u/0/r --new-window
-sleep 2
-exec i3-msg move container workspace 13
+sleep 1
+exec i3-msg "[title=\"$Google Calendar*\"] move to workspace 13"
