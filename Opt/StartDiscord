@@ -1,8 +1,0 @@
-#!/bin/bash
-
-if pgrep -x "Discord" > /dev/null
-then
-	echo "Already Running"
-else
-	exec discord --start-minimized
-fi
