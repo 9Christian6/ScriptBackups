@@ -11,23 +11,21 @@
 # - Give it exec priviledge, or chmod +x /path/to/power.sh
 # - Run it
 
-chosen=$(echo -e "[Cancel]\nLogout\nLock\nShutdown\nReboot\nSuspend\nHibernate\nHybrid-sleep\nSuspend-then-hibernate" | rofi -dmenu -i -location 5 -width 10 -lines 9 -p Shutdown)
+chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout\nSuspend\nHibernate\nSuspend-then-hibernate" | rofi -dmenu -i -location 5 -width 10 -lines 8 -p Shutdown)
 # Info about some states are available here:
 # https://www.freedesktop.org/software/systemd/man/systemd-sleep.conf.html#Description
 
-if [[ $chosen = "Logout" ]]; then
-	exec i3-msg exit
-elif [[ $chosen = "Lock" ]]; then
-	exec ~/Bin/multilock/i3lock-multimonitor/lock
-elif [[ $chosen = "Shutdown" ]]; then
+if [[ $chosen = "Shutdown" ]]; then
 	systemctl poweroff
 elif [[ $chosen = "Reboot" ]]; then
 	systemctl reboot
+elif [[ $chosen = "Lock" ]]; then
+	exec ~/Bin/multilock/i3lock-multimonitor/lock
+elif [[ $chosen = "Logout" ]]; then
+	exec i3-msg exit
 elif [[ $chosen = "Suspend" ]]; then
 	systemctl suspend
 elif [[ $chosen = "Hibernate" ]]; then
-	systemctl hibernate
-elif [[ $chosen = "Hybrid-sleep" ]]; then
 	systemctl hibernate
 elif [[ $chosen = "Suspend-then-hibernate" ]]; then
 	systemctl suspend-then-hibernate
