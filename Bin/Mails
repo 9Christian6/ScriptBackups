@@ -2,4 +2,4 @@
 sleep 5
 chromium https://webmail.uni-saarland.de/imp/dynamic.php?page=mailbox https://mail.google.com/mail/u/0/#inbox --new-window
 sleep 1
-exec i3-msg "[title=\"$Mails*\"] move to workspace 12"
+exec i3-msg "[title=\"$Intranet*\"] move to workspace 12"
