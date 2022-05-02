@@ -1,0 +1,2 @@
+#!/bin/bash
+telegram-desktop -sendpath "$(readlink -f "$1")"
