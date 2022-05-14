@@ -1,0 +1,5 @@
+#!/bin/bash
+exec_always --no-startup-id compton -b
+exec_always --no-startup-id $HOME/Bin/StartDiscord
+exec_always --no-startup-id $HOME/Bin/PolybarStart
+exec_always --no-startup-id ~/.i3/i3-chrome-tab-dragging.py
