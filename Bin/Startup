@@ -1,13 +1,2 @@
 #!/bin/bash	
-exec --no-startup-id signal-desktop
-exec --no-startup-id whatsdesk
-exec --no-startup-id spotify
-exec --no-stratup-id todoist
-exec --no-startup-id $HOME/Bin/TerminalStartup
-exec --no-startup-id i3-msg workspace 2
-exec --no-startup-id $HOME/Bin/Calendar
-exec --no-startup-id $HOME/Bin/Mails
-exec --no-startup-id go-for-it
-exec "xrandr --output HDMI-0 --auto --right-of DVI-D-0"
-exec "i3-msg '[instance=gnome-terminal-server] move to workspace 4'"
-exec --no-startup-id xset -dpms s off
+signal-desktop & whatsdesk & spotify & todoist & $HOME/Bin/TerminalStartup & i3-msg workspace 2 & $HOME/Bin/Calendar & $HOME/Bin/Mails & go-for-it & xrandr --output HDMI-0 --auto --right-of DVI-D-0 & i3-msg '[instance=gnome-terminal-server] move to workspace 4' & xset -dpms s off
