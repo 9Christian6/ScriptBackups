@@ -1,0 +1,2 @@
+#!/bin/bash
+exec killall -s SIGKILL whatsdesk & exec killall signal-desktop & exec killall Discord
