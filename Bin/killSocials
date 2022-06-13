@@ -1,2 +1,2 @@
 #!/bin/bash
-exec killall -s SIGKILL whatsdesk & exec killall signal-desktop & exec killall Discord
+exec killall -s SIGKILL whatsdesk & exec killall signal-desktop & exec killall Discord & exec i3-msg '[class=Chromium instance=mail.google.com__mail_u_0] kill' & exec i3-msg '[class=Chromium instance=webmail.uni-saarland.de__imp_dynamic.php] kill'
