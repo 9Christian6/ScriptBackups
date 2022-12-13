@@ -1,3 +1,4 @@
 #!/bin/bash	
-signal-desktop & whatsdesk & spotify & todoist & $HOME/Bin/TerminalStartup & $HOME/Bin/Calendar & $HOME/Bin/Mails & go-for-it & chrome-tab-dragging.py & xrandr --output HDMI-1 --auto --right-of DVI-D-1 & xrandr --output DVI-D-1 --auto --right-of DP-2 & xset -dpms s off & sleep 10 && removeUrgency && wallset --video /home/christian/Desktop/Wallpaper/RoomAtNight.mp4 && i3-msg workspace 1
+exec $HOME/Bin/startAnimation & /home/christian/Bin/StartSocials & spotify & todoist & $HOME/Bin/TerminalStartup & $HOME/Bin/Calendar & $HOME/Bin/Mails & go-for-it & xrandr --output HDMI-1 --auto --right-of DVI-D-1 & xrandr --output DVI-D-1 --auto --right-of DP-2 & xset -dpms s off &  i3-msg workspace 4 # & /home/christian/Bin/i3-chrome-tab-dragging.py 
+sleep 10 & removeUrgency 
 
