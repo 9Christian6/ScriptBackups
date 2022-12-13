@@ -1,6 +1,7 @@
 #!/bin/bash
 #chromium https://webmail.uni-saarland.de/imp/dynamic.php?page=mailbox https://mail.google.com/mail/u/0/#inbox --new-window && sleep 2 && i3-msg "[title=\".*uni.*\"] move to workspace 12"
-chromium --app='https://webmail.uni-saarland.de/imp/dynamic.php\?page\=mailbox' > /dev/null 2>&1 &
-chromium --app='https://mail.google.com/mail/u/0/\#inbox' > /dev/null 2>&1
+#chromium --app='https://webmail.uni-saarland.de/imp/dynamic.php\?page\=mailbox' > /dev/null 2>&1 &
+#chromium --app='https://mail.google.com/mail/u/0/\#inbox' > /dev/null 2>&1
+thunderbird
 sleep 3
 removeUrgency
