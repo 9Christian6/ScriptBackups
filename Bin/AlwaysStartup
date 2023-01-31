@@ -1,2 +1,2 @@
 #!/bin/bash
-compton -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & ~/.i3/i3-chrome-tab-dragging.py
+picom -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & ~/.i3/i3-chrome-tab-dragging.py
