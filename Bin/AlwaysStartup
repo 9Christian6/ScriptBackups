@@ -1,2 +1,2 @@
 #!/bin/bash
-picom -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & ~/.i3/i3-chrome-tab-dragging.py
+/home/christian/Bin/picom --config /home/christian/Opt/picom/picom.sample.conf -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart
