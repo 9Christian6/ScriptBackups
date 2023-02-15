@@ -1,2 +1,2 @@
 #!/bin/bash
-/home/christian/Bin/picom --config /home/christian/Opt/picom/picom.sample.conf -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart
+/home/christian/Bin/picom --config /home/christian/Opt/picom/picom.sample.conf -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & feh --no-fehbg --bg-scale '/home/christian/Desktop/Wallpaper/RoomAtNightCroppedWithBackground.png'
