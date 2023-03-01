@@ -1,7 +1,19 @@
 #!/bin/bash
 
 # Update packages
-sudo apt-get update && sudo apt-get upgrade && sudo snap refresh && flatpak update
+echo -e "Starting apt-get update\n"
+sudo apt-get update && sudo apt-get upgrade 
+echo -e "apt-get update done"
+echo -e "---------------------------------------------------------------------"
+echo -e "\nStarting snap update\n"
+sudo snap refresh 
+echo -e "snap update done"
+echo -e "---------------------------------------------------------------------"
+echo -e "\nStarting flatpak update\n"
+flatpak update
+echo -e "flatpak update done"
+echo -e "---------------------------------------------------------------------"
+
 
 # Prompt user to clear screen
 read -p "Clear screen? (Y/n): " yn
