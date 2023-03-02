@@ -1,2 +1,2 @@
 #!/bin/bash
-chromium --app="https://calendar.google.com" 
+firefox --kiosk --no-remote --class WebApp --profile /home/christian/snap/firefox/common/.mozilla/firefox/0ph6yeum.default https://calendar.google.com
