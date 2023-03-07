@@ -6,19 +6,18 @@ echo -e "Starting apt-get update"
 echo -e "---------------------------------------------------------------------"
 sudo apt-get update && sudo apt-get upgrade 
 # Prompt user to call autoremove
-read -p "call apt autoremove? (Y/n): " yn
+read -p "call apt autoremove? (y/N): " yn
 # If user entered "n", exit the script without clearing the screen
-if [[ "$yn" == "n" ]]; then
-    exit 0
+if [[ "$yn" == "y" ]]; then
+    sudo apt autoremove
 fi
-sudo apt autoremove
 echo -e "apt-get update done"
-echo -e "---------------------------------------------------------------------"
+echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting snap update"
 echo -e "---------------------------------------------------------------------"
 sudo snap refresh 
 echo -e "snap update done"
-echo -e "---------------------------------------------------------------------"
+echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting flatpak update"
 echo -e "---------------------------------------------------------------------"
 flatpak update
