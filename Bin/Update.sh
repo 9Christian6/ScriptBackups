@@ -6,6 +6,9 @@ echo -e "Starting apt-get update"
 echo -e "---------------------------------------------------------------------"
 sudo apt-get update && sudo apt-get upgrade 
 # Prompt user to call autoremove
+echo -e "\n---------------------------------------------------------------------"
+echo -e "apt autoremove"
+echo -e "---------------------------------------------------------------------"
 read -p "call apt autoremove? (y/N): " yn
 # If user entered "n", exit the script without clearing the screen
 if [[ "$yn" == "y" ]]; then
