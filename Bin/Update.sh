@@ -24,7 +24,7 @@ echo -e "\n---------------------------------------------------------------------
 echo -e "Starting flatpak update"
 echo -e "---------------------------------------------------------------------"
 flatpak update
-echo -e "flatpak update done"
+echo -e "flatpak update done\n"
 
 
 # Prompt user to clear screen
