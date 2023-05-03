@@ -5,18 +5,6 @@ echo -e "---------------------------------------------------------------------"
 echo -e "Starting apt-get update"
 echo -e "---------------------------------------------------------------------"
 sudo nala update && sudo nala upgrade 
-# Prompt user to call autoremove
-echo -e "\n---------------------------------------------------------------------"
-echo -e "apt autoremove"
-echo -e "---------------------------------------------------------------------"
-read -p "call apt autoremove? (Y/n): " yn
-# If user entered "n", exit the script without clearing the screen
-if [[ "$yn" == "n" ]];
-then
-    :
-else
-    sudo nala autoremove
-fi
 echo -e "apt-get update done"
 echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting snap update"
