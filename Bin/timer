@@ -32,6 +32,15 @@ do
     time=$(echo "scale=1; $time-$increment" | bc)
     minutes=$(bc <<< "$time/60")
     seconds=$(bc <<< "$time%60")
+    if [ "$(bc <<< "$seconds < 10")" == "1" ]
+    then
+        seconds=${seconds%.*}
+        seconds="0${seconds}"
+        if [ "$(bc <<< "$seconds == 0")" == "1" ]
+        then
+            seconds="00"
+        fi
+    fi
     seconds=${seconds%.*}
     if [ "$(bc <<< "$minutes > 0")"  == "1" ]
     then
