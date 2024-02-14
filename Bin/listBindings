@@ -1,2 +1,2 @@
 #!/bin/bash
-exec grep -e '^[^#]*bindsym $mod' ~/.config/i3/config
+exec grep -e '^[^#]*bindsym $mod' ~/.config/sway/config

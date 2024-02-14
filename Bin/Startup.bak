@@ -1,0 +1,4 @@
+#!/bin/bash	
+sleep 1 
+echo 'Finished sleeping'
+exec $HOME/Bin/StartSocials.sh & python3 $HOME/Bin/inactiveOpacityException.py & exec $HOME/.cargo/bin/workstyle & exec spotify & exec $HOME/Bin/TerminalStartup & exec $HOME/Bin/Mails & exec $HOME/Bin/Calendar.sh & exec swaymsg 'workspace 1'

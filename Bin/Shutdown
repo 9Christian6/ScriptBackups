@@ -21,7 +21,7 @@ elif [[ $chosen = "Reboot" ]]; then
 elif [[ $chosen = "Lock" ]]; then
 	exec /home/christian/Bin/Lock
 elif [[ $chosen = "Logout" ]]; then
-	exec i3-msg exit
+	exec swaymsg exit
 #elif [[ $chosen = "Suspend" ]]; then
 #	systemctl suspend
 #elif [[ $chosen = "Hibernate" ]]; then

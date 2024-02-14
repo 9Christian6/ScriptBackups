@@ -1,5 +1,5 @@
 #!/bin/bash
-/home/christian/Bin/picom --config /home/christian/Opt/picom/picom.sample.conf -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & feh --no-fehbg --bg-scale '/home/christian/Desktop/Wallpaper/RoomAtNightCroppedWithBackground.png'
-i3-msg workspace 1
-sleep 15
-/home/christian/Bin/removeUrgency
+python3 $HOME/Bin/inactiveOpacityLockTest.py&
+swaymsg input type:keyboard xkb_layout "de" & 
+/home/christian/Bin/picom --config /home/christian/Opt/picom/picom.sample.conf -b & $HOME/Bin/StartDiscord & $HOME/Bin/PolybarStart & feh --no-fehbg --bg-scale '/home/christian/Opt/Wallpaper/RoomAtNightCroppedWithBackground.png'
+python3 /home/christian/Bin/removeUrgency.py
