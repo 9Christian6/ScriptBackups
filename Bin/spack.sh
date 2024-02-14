@@ -1,1 +1,0 @@
-/home/christian/Opt/spack/bin/spack
