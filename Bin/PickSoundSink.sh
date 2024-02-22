@@ -13,12 +13,12 @@ move_sink_inputs() {
 }
 
 list_sinks() {
-    sinks=$(pactl list sinks short) || return 1
+    sinks=$(pactl list sinks short | awk '{print $2}') || return 1
     echo "$sinks" | sed -e "s/\t/\ /g"
 }
 
 select_sink() {
-    sink="$(list_sinks | rofi -dmenu)" || return 1
+    sink="$(list_sinks | rofi -dmenu -p "Pick a sound sink")" || return 1
     sink="$(echo "$sink" | cut -f 1 -d " ")"
     [ -n "$sink" ] || return 1
 
