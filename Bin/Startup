@@ -1,4 +1,6 @@
 #!/bin/bash	
+exec feh --bg-fill $HOME/Opt/Wallpapers/RoomAtNightCroppedWithBackground.png&
+exec picom&
 sleep 1 
 echo 'Finished sleeping'
 python3 $HOME/Bin/inactiveOpacityException.py&

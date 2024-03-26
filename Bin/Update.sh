@@ -4,12 +4,12 @@
 echo -e "---------------------------------------------------------------------"
 echo -e "Starting apt-get update"
 echo -e "---------------------------------------------------------------------"
-sudo nala update && sudo nala upgrade 
+nala update && nala upgrade 
 echo -e "apt-get update done"
 echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting snap update"
 echo -e "---------------------------------------------------------------------"
-sudo snap refresh 
+snap refresh 
 echo -e "snap update done"
 echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting flatpak update"
