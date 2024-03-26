@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 /home/christian/Bin/inactiveOpacityException.py&
+python3 /home/christian/Bin/inactiveOpacityLockTest.py&
