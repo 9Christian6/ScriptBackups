@@ -1,3 +1,3 @@
 #!/bin/bash
 fileName=$((echo "/home/christian/Pictures/Screenshots/Screenshot"; ls /home/christian/Pictures/Screenshots | wc -l ; echo ".png") | paste -d" " -s | sed s/' '//g)
-grim -g "$(slurp)" $fileName
+scrot -s -F $fileName
