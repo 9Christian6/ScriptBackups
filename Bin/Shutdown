@@ -11,7 +11,7 @@
 # - Give it exec priviledge, or chmod +x /path/to/power.sh
 # - Run it
 
-chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout" | rofi -dmenu -i -location 5 -l 5 -len 3 -p Shutdown -theme-str 'window {width: 20%;}')
+chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout" | rofi -dmenu -yoffset -27 -i -location 5 -l 5 -len 3 -p Shutdown -theme-str 'window {width: 20%;}')
 # Info about some states are available here:
 # https://www.freedesktop.org/software/systemd/man/systemd-sleep.conf.html#Description
 if [[ $chosen = "Shutdown" ]]; then

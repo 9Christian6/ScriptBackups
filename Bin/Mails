@@ -2,6 +2,5 @@
 #chromium https://webmail.uni-saarland.de/imp/dynamic.php?page=mailbox https://mail.google.com/mail/u/0/#inbox --new-window && sleep 2 && i3-msg "[title=\".*uni.*\"] move to workspace 12"
 #chromium --app='https://webmail.uni-saarland.de/imp/dynamic.php\?page\=mailbox' > /dev/null 2>&1 &
 #chromium --app='https://mail.google.com/mail/u/0/\#inbox' > /dev/null 2>&1
+firefox --kiosk --no-remote --class WebApp --profile /home/christian/snap/firefox/common/.mozilla/firefox/06eme3ou.ProtonMail https://mail.proton.me/u/0/inbox?welcome=true &
 thunderbird
-sleep 3
-removeUrgency

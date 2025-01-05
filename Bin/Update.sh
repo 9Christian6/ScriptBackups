@@ -4,17 +4,17 @@
 echo -e "---------------------------------------------------------------------"
 echo -e "Starting apt-get update"
 echo -e "---------------------------------------------------------------------"
-nala update && nala upgrade 
+sudo nala update && sudo nala upgrade 
 echo -e "apt-get update done"
 echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting snap update"
 echo -e "---------------------------------------------------------------------"
-snap refresh 
+sudo snap refresh 
 echo -e "snap update done"
 echo -e "\n---------------------------------------------------------------------"
 echo -e "Starting flatpak update"
 echo -e "---------------------------------------------------------------------"
-flatpak update
+sudo flatpak update
 echo -e "flatpak update done\n"
 
 #promt the user if update should be executed again
@@ -32,5 +32,6 @@ read -p "Clear screen? (Y/n): " yn
 if [[ "$yn" == "n" ]]; then
     exit 0
 else
-    clear
+  #su -c '/home/christian/Bin/Clear.sh' christian
+  /home/christian/Bin/Clear.sh
 fi
