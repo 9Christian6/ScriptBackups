@@ -31,7 +31,7 @@ def countup_seconds():
         time.sleep(0.1)
         seconds = round(seconds + 0.1, 1)
 
-def countdown_seconds():
+def countdown_seconds(message):
     global spinner
     global seconds
     while seconds > 0:
@@ -46,8 +46,14 @@ def countdown_seconds():
         seconds = round(seconds - 0.1, 1)
         with open('/home/christian/Bin/timeLeft', 'w') as f:
             f.write('')
-    sys.stdout.write("\rCountdown finished\n")
-    subprocess.Popen(['notify-send', 'Countdown finished'])
+    if message != "":
+        print("\033[A                             \033[A")
+        #sys.stdout.write(f"\r{message}")
+        print(message, flush=True)
+        subprocess.Popen(['notify-send', message])
+    else:
+        sys.stdout.write("\rCountdown finished\n")
+        subprocess.Popen(['notify-send', 'Countdown finished'])
     #subprocess.Popen(['play', '/home/christian/Music/Bellsound.aiff', '-q', stdout=None])
     #subprocess.run("nohup play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     subprocess.Popen("play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -63,6 +69,7 @@ def main():
     parser.add_argument('-m', '--minutes', type=int, help='Number of minutes')
     parser.add_argument('-r', '--run', action='store_true', help='Runs a timer that counts up in seconds indefinitely')
     parser.add_argument('-t', '--time', type=str, help='Counts until the given time in the format HH:MM:SS')
+    parser.add_argument('--message', type=str, help='Message that is displayed when timer runs up')
 
     if (sys.argv.__len__() <= 1):
         parser.print_help()
@@ -74,7 +81,10 @@ def main():
         try:
             time_str = args.time
             now = datetime.now()
-            time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
+            if len(time_str) < 8:
+                time_obj = datetime.strptime(time_str, '%H:%M').time()
+            else:
+                time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
             next_occurance = datetime.combine(now, time_obj)
             if next_occurance <= now:
                 next_occurance += timedelta(days=1)
@@ -92,8 +102,13 @@ def main():
     if args.minutes:
         seconds += args.minutes * 60
 
+    if args.message:
+        message = args.message
+    else:
+        message = ""
+
     if seconds > 0:
-        countdown_seconds()
+        countdown_seconds(message)
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
