@@ -3,12 +3,15 @@ import time
 import sys
 import os
 import subprocess
-from datetime import datetime, timedelta
 import argparse
 import signal
+from datetime import datetime, timedelta
+from pynput import keyboard
+from pynput.keyboard import Key, Listener
 
 spinner = ['|', '/', '-', '\\']
 seconds = 0
+crtlPressed = False
 
 def signal_handler(sig, frame):
     global seconds
@@ -35,7 +38,7 @@ def countdown_seconds(message):
     global spinner
     global seconds
     while seconds > 0:
-        columns = os.get_terminal_size().columns - 15
+        columns = os.get_terminal_size().columns - 2
         time_display = str(timedelta(seconds=int(seconds)))
         with open('/home/christian/Bin/timeLeft', 'w') as f:
             f.write(time_display)
@@ -58,8 +61,31 @@ def countdown_seconds(message):
     #subprocess.run("nohup play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     subprocess.Popen("play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+def on_press(key):
+    global seconds
+    try:
+        if key.char == ('+'):
+            seconds+= 10
+        if key.char == ('-'):
+            seconds-= 10
+        if key.char == ('l'):
+            os.system('clear')
+        if key == keyboard.Key.crtl:
+            os.system('cls')
+    except:
+        return
+
+def on_release(key):
+    global crtlPressed
+    if key == Keyboard.Key.crtl:
+        crtlPressed = False
+
 def main():
     global seconds
+
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
+
     parser = argparse.ArgumentParser(
         prog='Timer',
         description='A simple timer',
