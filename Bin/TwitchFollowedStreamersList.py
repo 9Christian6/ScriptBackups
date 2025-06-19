@@ -13,8 +13,6 @@ import argparse
 from datetime import datetime, timedelta
 
 # Replace these with your own credentials from Twitch Dev Console
-#APP_ID = 'ds04gq574qqencjhxb15yo6yito9sc'
-#APP_SECRET = 'knqilwhetlc4w08v3rlzuwcaj0jbho'
 APP_ID = ''
 APP_SECRET = ''
 # Load credentials from files
