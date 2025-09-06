@@ -36,7 +36,7 @@ list_sinks() {
 }
 
 select_sink() {
-  sink="$(list_sinks | rofi -dmenu -lines 2 -location 5 -anchor west -yoffset -27 -xoffset 10 -p "Pick a sound sink")" || return 1
+  sink="$(list_sinks | rofi -dmenu -no-custom -theme-str 'inputbar { enabled: false; } listview { lines: 2; }' -l 2 -location 5 -anchor west -yoffset -27 -xoffset -400 -p "Pick a sound sink")" || return 1
   sink="$(echo "$sink" | cut -f 3 -d " ")"
   echo "$sink"
   [ -n "$sink" ] || return 1
