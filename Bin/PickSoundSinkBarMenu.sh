@@ -22,10 +22,10 @@ list_sinks() {
   for sink in "${sinks[@]}"; do
     case "$sink" in
       alsa_output.usb-ASUS_Xonar_U7-00.analog-stereo)
-        echo "🎧 Kopfhörer $sink"
+        echo -e "Kopfhörer\0icon\x1f/home/christian/Pictures/Icons/headphones.png\0$sink[Kopfhörer]"
         ;;
       alsa_output.pci-0000_04_00.1.hdmi-stereo-extra1)
-        echo "🖥️ Monitor $sink"
+        echo -e "Monitor\0icon\x1f/home/christian/Pictures/Icons/monitor.png\0$sink[Monitor]"
         ;;
       *)
         # Default: show the original sink name
