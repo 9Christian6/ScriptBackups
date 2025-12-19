@@ -9,7 +9,7 @@ exec $HOME/.cargo/bin/workstyle&
 exec spotify&
 exec $HOME/Bin/TerminalStartup&
 exec $HOME/Bin/Mails&
-# exec $HOME/Bin/Calendar.sh&
+exec $HOME/Bin/Calendar.sh&
 exec $HOME/Bin/StartSocials.sh&
 exec sudo nvidia-xconfig --xconfig="/home/christian/.config/Xorg/Xorg.conf"
 swaymsg "workspace 1"
