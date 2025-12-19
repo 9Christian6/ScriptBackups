@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import i3ipc
 
 # Function to recursively find urgent containers
@@ -13,7 +14,6 @@ def find_visible_workspaces(i3, visible_workspaces):
     workspaces = i3.workspaces()
     # Print the IDs of visible workspaces
     visible_workspaces = [ws.id for ws in workspaces if ws.visible]
-    print("Visible Workspace IDs:", visible_workspace_ids)
 
 # Connect to the running i3 instance
 i3 = i3ipc.Connection()
