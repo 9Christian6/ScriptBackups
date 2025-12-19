@@ -1,3 +1,4 @@
 #!/bin/bash
+pkill -SIGUSR1 dunst
 exec multilockscreen --lock blur
-
+pkill -SIGUSR2 dunst
