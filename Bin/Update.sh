@@ -1,28 +1,44 @@
 #!/bin/bash
 
+# Define colors
+GREEN='\033[0;32m'
+NC='\033[0m'
 # Update packages
 echo -e "---------------------------------------------------------------------"
-echo -e "Starting apt-get update"
+printf "${GREEN}"
+echo -e "Starting apt update"
+printf "${NC}"
 echo -e "---------------------------------------------------------------------"
 sudo nala update && sudo nala upgrade 
-echo -e "apt-get update done"
+printf "${GREEN}"
+echo -e "apt update done"
+printf "${NC}"
 echo -e "\n---------------------------------------------------------------------"
+printf "${GREEN}"
 echo -e "Starting snap update"
+printf "${NC}"
 echo -e "---------------------------------------------------------------------"
 sudo snap refresh 
+printf "${GREEN}"
 echo -e "snap update done"
+printf "${NC}"
 echo -e "\n---------------------------------------------------------------------"
+printf "${GREEN}"
 echo -e "Starting flatpak update"
+printf "${NC}"
 echo -e "---------------------------------------------------------------------"
 sudo flatpak update
+printf "${GREEN}"
 echo -e "flatpak update done\n"
+printf "${NC}"
 
 #promt the user if update should be executed again
 read -p "Update again? (Y/n): " yn
 if [[ "$yn" == "n" ]]; then
     :
 else
-    exec /home/christian/Bin/Update.sh
+    clear
+    exec $HOME/Bin/Update.sh
 fi
 
 # Prompt user to clear screen
@@ -33,5 +49,5 @@ if [[ "$yn" == "n" ]]; then
     exit 0
 else
   #su -c '/home/christian/Bin/Clear.sh' christian
-  /home/christian/Bin/Clear.sh
+  $HOME/Bin/Clear.sh
 fi
