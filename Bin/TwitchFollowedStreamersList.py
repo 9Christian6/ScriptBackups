@@ -1,3 +1,4 @@
+#!/home/christian/Opt/PythonEnvs/TwitchFollowedStreamers/bin/python3.12
 import requests
 from twitchAPI.twitch import Twitch
 from twitchAPI.helper import List
@@ -10,6 +11,7 @@ import os
 import threading
 import json
 import argparse
+import subprocess
 from datetime import datetime, timedelta
 
 # Replace these with your own credentials from Twitch Dev Console
@@ -39,6 +41,7 @@ spinner_running = False
 remaining_time = 0
 pretty_prints = True
 
+
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Monitor your followed Twitch streamers')
@@ -46,7 +49,10 @@ def parse_arguments():
                        help='Disable pretty prints and spinner animations')
     parser.add_argument('--time', type=int, metavar='N',
                        help='Set time interval in seconds (default is 60)')
+    parser.add_argument('--notify', action='store_true',
+                        help='Displays list as notification')
     return parser.parse_args()
+
 
 def save_tokens(token, refresh_token):
     """Save tokens to cache file with expiration time"""
@@ -65,6 +71,7 @@ def save_tokens(token, refresh_token):
     except Exception as e:
         if pretty_prints:
             print(f"Warning: Could not save tokens to cache: {e}")
+
 
 def load_tokens():
     """Load tokens from cache file if they exist and are not expired"""
@@ -90,6 +97,7 @@ def load_tokens():
             print(f"Warning: Could not load cached tokens: {e}")
         return None, None
 
+
 def clear_token_cache():
     """Clear the token cache file"""
     try:
@@ -100,6 +108,7 @@ def clear_token_cache():
     except Exception as e:
         if pretty_prints:   
             print(f"Warning: Could not clear token cache: {e}")
+
 
 def spinner_animation():
     """Simple spinner animation that runs in a separate thread with countdown timer"""
@@ -127,6 +136,7 @@ def spinner_animation():
         i = (i + 1) % len(spinner_chars)
         remaining_time -= 0.1
 
+
 async def get_live_channels(twitch, user):
     # Get followed channels
     followed_channels = twitch.get_followed_streams(user.id)
@@ -140,8 +150,9 @@ async def get_live_channels(twitch, user):
     live_channels = []
     async for channel in followed_channels:
         if channel.type == 'live':
-            live_channels.append(channel.user_name)
+            live_channels.append(channel)
     return live_channels
+
 
 def parse_time(cmd_time=None):
     global TIME_INTERVAL
@@ -152,7 +163,6 @@ def parse_time(cmd_time=None):
                 print("Time interval must be at least 1 second. Using default of 60 seconds.")
             TIME_INTERVAL = 60
         return
-    
     try:
         TIME_INTERVAL = 60
         user_input = input("Enter time interval in seconds (default is 60): ")
@@ -162,15 +172,18 @@ def parse_time(cmd_time=None):
                 if pretty_prints:
                     print("Time interval must be at least 1 second. Using default of 60 seconds.")
                 TIME_INTERVAL = 60
-            
     except ValueError:
         if pretty_prints:   
             print("Invalid input. Using default time interval of 60 seconds.")
         TIME_INTERVAL = 60
 
+
 async def main():
-    global spinner_running, TIME_INTERVAL, remaining_time, pretty_prints
+    global spinner_running, TIME_INTERVAL, remaining_time, pretty_prints, notify
+    notify = False
     args = parse_arguments()
+    if args.notify:
+        notify = True
     if args.no_pretty_prints:
         pretty_prints = False
     else:
@@ -180,13 +193,10 @@ async def main():
         else:
             pretty_prints = True
     parse_time(args.time)
-    
     # Initialize the Twitch instance
     twitch = await Twitch(APP_ID, APP_SECRET)
-    
     # Try to load cached tokens first
     token, refresh_token = load_tokens()
-    
     if token and refresh_token:
         # Try to use cached tokens
         try:
@@ -200,7 +210,6 @@ async def main():
                 print("Clearing cache and re-authenticating...")
             clear_token_cache()
             token, refresh_token = None, None
-    
     if not token or not refresh_token:
         # Set up user authentication
         target_scope = [AuthScope.USER_READ_FOLLOWS]
@@ -213,7 +222,6 @@ async def main():
         if pretty_prints:
             print('token')
         await twitch.set_user_authentication(token, target_scope, refresh_token)
-        
         # Save tokens to cache
         save_tokens(token, refresh_token)
 
@@ -227,19 +235,33 @@ async def main():
 
     try:
         while True:
+            onlineList = ''
             os.system('cls' if os.name == 'nt' else 'clear')
             live_channels = await get_live_channels(twitch, user)
             if pretty_prints:
                 print(str(len(live_channels)) + " Channels are live:\n")
             if live_channels:
                 for channel in live_channels:
-                    print(channel)
-                    #print(f"{channel}")
+                    viewer_count = str(channel.viewer_count)
+                    streamer_name = channel.user_name
+                    game_name = channel.game_name
+                    # Format each streamer's info on a single line
+                    line = f"{viewer_count:<8} | {streamer_name:<20} | {game_name:<25}"
+                    print(line)
+                    onlineList += line + "\n"
+                    # print(f"{viewer_count:<8} | {streamer_name:<20} | {game_name:<25}")
+                    # onlineList += f"{viewer_count:<8} | {streamer_name:<20} | {game_name:<25}\n"
+                if notify:
+                    # subprocess.run(["notify-send", onlineList])
+                    subprocess.run(["notify-send",  "-t", "10000",  "-i", "/home/christian/Desktop/Icons/TwitchIcon.png", "Online Streamers", onlineList.strip()])
+                if args.time:
+                    exit()
             else:
                 if pretty_prints:
                     print("\nNo live channels at the moment.")
                     print('\n')
             # Start spinner in background thread
+            print('\n')
             spinner_running = True
             remaining_time = TIME_INTERVAL
             spinner_thread = threading.Thread(target=spinner_animation, daemon=True)
