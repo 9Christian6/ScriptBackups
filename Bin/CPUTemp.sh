@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # --- Configuration ---
-GREEN_LIMIT=50   # harmless
-YELLOW_LIMIT=70  # under load
+GREEN_LIMIT=60   # harmless
+YELLOW_LIMIT=80  # under load
 # Above 70°C is dangerous (red)
 
 # --- Get temperature from sensors ---
@@ -36,5 +36,5 @@ else
 fi
 
 # --- Output for Polybar ---
-echo "%{F$COLOR}${ICON} ${TEMP_INT}°C%{F-}"
-
+# echo "%{F$COLOR}${ICON} ${TEMP_INT}°C %{F-}"
+echo "%{F$COLOR}${TEMP_INT}°C %{F-}"
