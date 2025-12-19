@@ -109,8 +109,8 @@ bar="${filled_part}%{F-}${INDICATOR}${empty_part}"
 # --- Final output ---
 if [ "$mute" = "true" ] || [ "$mute" = "yes" ]; then
   # Muted style
-  printf '%s %%{F%s}%s%% %%{F%s}%s%%{F-}%s\n' \
-    "$prefix" "$MUTED_COLOR" "$volume" "$MUTED_COLOR" "$bar" "$SUFFIX"
+  printf '%%{F%s}%s %s%% %%{F%s}%s%%{F-}%s\n' \
+    "$MUTED_COLOR" "$prefix" "$volume" "$MUTED_COLOR" "$bar" "$SUFFIX"
 else
   # Active style: white percentage, colorized bar
   printf '%s %%{F#FFFFFF}%s%% %%{F-}%s%s%%{F-}\n' \
