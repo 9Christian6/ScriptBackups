@@ -5,6 +5,9 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-FILENAME="${pwd}$1.tex"
+sheetNumber="$2"
+
+FILENAME="$(pwd)/$1.tex"
 cp $HOME/Documents/Uni/LaTeXTemplate.tex $FILENAME
+sed -i "s/SHEETNUMBER/${sheetNumber}/g" "$FILENAME"
 nvim $FILENAME
