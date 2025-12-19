@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
 import os
 import subprocess
 from datetime import datetime, timedelta
@@ -18,15 +18,20 @@ def format_date(date):
 
 def main():
     # Define file paths
-    journal_path = os.path.expanduser("~/Desktop/Tagebuch")
-    reminder_path = os.path.expanduser("~/Opt/TagebuchErinnerung.txt")
+    journal_path = os.path.expanduser("~/Documents/Tagebuch")
+    reminder_path = os.path.expanduser("~/Documents/TagebuchErinnerung.txt")
 
     # Create a separator line
     separator = "--------------------------------------------------------------------\n"
 
+    now = datetime.now()
+    if now.hour < 18:
+        entry_date = now - timedelta(days=1)
+    else:
+        entry_date = now
+
     # Get today's date and compute the Sunday of the current week
-    today = datetime.today()
-    formatted_today = today.strftime("%d.%m.%Y")
+    formatted_today = entry_date.strftime("%d.%m.%Y")
 
     # Read the last line of the file if it exists
     last_line = ""
@@ -34,7 +39,8 @@ def main():
         with open(journal_path, "r") as f:
             lines = f.readlines()
             if lines:
-                last_line = lines[-1].strip()  # Read the last line and remove trailing newlines
+                last_line = lines[-1].strip(
+                )  # Read the last line and remove trailing newlines
 
     # Only write the new entry if the last line isn't already a separator
     if last_line != separator.strip():
@@ -43,12 +49,14 @@ def main():
             f.write(entry)
 
     # Open the journal in Alacritty with Neovim
-    subprocess.run(["alacritty", "-e", "nvim", "+normal Go", "+startinsert", journal_path])
+    subprocess.run([
+        "alacritty", "-e", "nvim", "+normal Go", "+startinsert", journal_path
+    ])
 
     # Log the current date in the reminder file
-    current_date = today.strftime('%d.%m.%Y')
+    # current_date = today.strftime('%d.%m.%Y')
     with open(reminder_path, "a") as f:
-        f.write(f"{current_date}\n")
+        f.write(f"{formatted_today}\n")
 
 
 if __name__ == "__main__":
