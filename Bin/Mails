@@ -5,4 +5,4 @@ thunderbird&
 while [ -z "$(pidof thunderbird-bin)" ]; do
   sleep 1
 done
-~/Bin/LayoutChange.sh 12 tabbed
+~/Bin/LayoutChange.sh 12 stacked
