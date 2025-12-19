@@ -11,7 +11,38 @@
 # - Give it exec priviledge, or chmod +x /path/to/power.sh
 # - Run it
 
-chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout" | rofi -dmenu -yoffset -27 -i -location 5 -l 5 -len 3 -p Shutdown -theme-str 'window {width: 20%;}')
+#chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout" | rofi -dmenu -no-custom -theme-str 'inputbar { enabled: false; } listview { lines: 5; }'  -yoffset -27 -i -location 5 -l 5 -len 3 -p Shutdown -theme-str 'window {width: 9%;}')
+
+# chosen=$(echo -e \
+# "[Cancel]\0icon\x1fdialog-cancel-symbolic\0[Cancel]\n\
+# Shutdown\0icon\x1fsystem-shutdown-symbolic\0Shutdown\n\
+# Reboot\0icon\x1fsystem-reboot-symbolic\0Reboot\n\
+# Lock\0icon\x1fsystem-lock-screen-symbolic\0Lock\n\
+# Logout\0icon\x1fsystem-log-out-symbolic\0Logout" \
+# | rofi -dmenu -no-custom -show-icons \
+#   -theme-str '
+#     inputbar { enabled: false; }
+#     listview { lines: 5; }
+#     element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
+#   ' \
+#   -yoffset -27 -i -location 5 -l 5 -len 3 -p "Power" \
+#   -theme-str 'window { width: 9%; }' \
+#   -icon-theme "Papirus-Dark-Symbolic")
+chosen=$(echo -e \
+"Cancel\0icon\x1f/home/christian/Pictures/Icons/Cancel.512.png\0[Cancel]\n\
+Shutdown\0icon\x1fsystem-shutdown-symbolic\0Shutdown\n\
+Reboot\0icon\x1fsystem-reboot-symbolic\0Reboot\n\
+Lock\0icon\x1fsystem-lock-screen-symbolic\0Lock\n\
+Logout\0icon\x1fsystem-log-out-symbolic\0Logout" \
+| rofi -dmenu -no-custom -show-icons \
+  -theme-str '
+    inputbar { enabled: false; }
+    listview { lines: 5; }
+    element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
+  ' \
+  -yoffset -27 -i -location 5 -l 5 -len 50 -p "Power" \
+  -theme-str 'window { width: 12%; }' \
+  -icon-theme "Papirus-Dark-Symbolic")
 # Info about some states are available here:
 # https://www.freedesktop.org/software/systemd/man/systemd-sleep.conf.html#Description
 if [[ $chosen = "Shutdown" ]]; then
