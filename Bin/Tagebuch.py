@@ -50,7 +50,7 @@ def main():
 
     # Open the journal in Alacritty with Neovim
     subprocess.run([
-        "alacritty", "-e", "nvim", "+normal Go", "+startinsert", journal_path
+        "kitty", "--detach", "nvim", "+normal Go", "+startinsert", journal_path
     ])
 
     # Log the current date in the reminder file
