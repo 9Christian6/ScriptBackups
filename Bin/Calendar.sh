@@ -1,9 +1,0 @@
-#!/bin/bash
-firefox --kiosk --no-remote --class NextcloudCalendar --profile /home/christian/snap/firefox/common/.mozilla/firefox/1kj8jpiu.Calendar http://192.168.178.75:8080/apps/calendar/timeGridWeek/now&
-# firefox --kiosk --no-remote --class WebApp --profile /home/christian/snap/firefox/common/.mozilla/firefox/1kj8jpiu.Calendar https://calendar.google.com/calendar/u/0/r/week&
-# sleep 3 && swaymsg workspace next && swaymsg workspace prev
-#korganizer
-# echo 'moving window'
-# swaymsg "[title=\"Google Calendar\"] move workspace 13" 
-# echo 'disabling fullscreen'
-# swaymsg "[title=\"Google Calendar\"] fullscreen disable"
