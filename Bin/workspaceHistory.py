@@ -6,7 +6,7 @@ from pynput import keyboard
 class WorkspaceHistory:
     def __init__(self):
         self.i3 = i3ipc.Connection()
-        self.history = [] 
+        self.history = []
         self.current_index = -1
         self.ignore_next_event = False
 
@@ -21,7 +21,7 @@ class WorkspaceHistory:
         if not e.current:
             return
 
-        new_name = e.current.name
+        new_name = e.current.num
 
         # Ignore events triggered by our own history navigation
         if self.ignore_next_event:
@@ -39,7 +39,7 @@ class WorkspaceHistory:
 
         self.history.append(new_name)
         self.current_index = len(self.history) - 1
-        
+
         # Limit history size to 100
         if len(self.history) > 100:
             self.history.pop(0)
@@ -61,9 +61,9 @@ class WorkspaceHistory:
             print(f"--> GO FORWARD to: {target_ws}")
             self.switch_to(target_ws)
 
-    def switch_to(self, ws_name):
+    def switch_to(self, ws_number):
         self.ignore_next_event = True
-        self.i3.command(f'workspace "{ws_name}"')
+        self.i3.command(f'workspace number "{ws_number}"')
 
 def main():
     history_manager = WorkspaceHistory()
@@ -74,7 +74,7 @@ def main():
         '<cmd>+o': history_manager.go_back,
         '<cmd>+i': history_manager.go_forward
     })
-    
+
     # Start the hotkey listener in a non-blocking way
     hotkeys.start()
     print("Listening for Super+o / Super+i...")
