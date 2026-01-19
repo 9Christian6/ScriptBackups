@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
 import os
 import sys
 import time
@@ -6,19 +6,19 @@ import signal
 import argparse
 import subprocess
 import atexit
-import termios
-import tty
+# import termios
+# import tty
 import i3ipc
-import curses
+# import curses
 from datetime import datetime, timedelta
 from pynput import keyboard
 
 # --- Globals ---
-SPINNERBAR = ['\\','-','/','|','\\','-','/','|']
-SPINNERCLOCK = ['🕛','🕚','🕘','🕖','🕔','🕓','🕒','🕑','🕐']
-SPINNERFRAME = ['⠏','⠇','⠧','⠦','⠴','⠼','⠸','⠹','⠙','⠋']
-SPINNERCIRCLE = ["( ●    )","(  ●   )","(   ●  )","(    ● )","(     ●)","(    ● )","(   ●  )","(  ●   )","( ●    )","(●     )"]
-SPINNERFILLINGBAR=["▰▰▰▰▰▰▰", "▰▰▰▰▰▰▱","▰▰▰▰▰▱▱","▰▰▰▰▱▱▱","▰▰▰▱▱▱▱","▰▰▱▱▱▱▱","▰▱▱▱▱▱▱"]
+SPINNERBAR = ['\\', '-', '/', '|', '\\', '-', '/', '|']
+SPINNERCLOCK = ['🕛', '🕚', '🕘', '🕖', '🕔', '🕓', '🕒', '🕑', '🕐']
+SPINNERFRAME = ['⠏', '⠇', '⠧', '⠦', '⠴', '⠼', '⠸', '⠹', '⠙', '⠋']
+SPINNERCIRCLE = ["( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)", "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"]
+SPINNERFILLINGBAR = ["▰▰▰▰▰▰▰", "▰▰▰▰▰▰▱", "▰▰▰▰▰▱▱", "▰▰▰▰▱▱▱", "▰▰▰▱▱▱▱", "▰▰▱▱▱▱▱", "▰▱▱▱▱▱▱"]
 SPINNERS = [SPINNERCLOCK, SPINNERBAR, SPINNERFRAME, SPINNERCIRCLE, SPINNERFILLINGBAR]
 seconds = 0
 paused = False
@@ -33,8 +33,10 @@ def show_cursor():
 
 # --- Cleanup handler ---
 def exit_handler():
-    with open('/home/christian/Bin/timeLeft', 'w') as f:
-        f.write('')
+    write_time_to_file('')
+    write_message_to_file('')
+    # with open('/home/christian/Bin/timeLeft', 'w') as f:
+    #    f.write('')
     show_cursor()
 
 atexit.register(exit_handler)
@@ -70,8 +72,12 @@ def write_time_to_file(time_str):
     with open('/home/christian/Bin/timeLeft', 'w') as f:
         f.write(time_str + '\n')
 
+def write_message_to_file(message):
+    with open('/home/christian/Bin/timerMessage', 'w') as f:
+        f.write(message + '\n')
+
 def notify(message, reading='', sound=True):
-    if reading=='':
+    if reading == '':
         reading = message
     subprocess.Popen(['notify-send', message])
     if message:
@@ -183,7 +189,7 @@ def is_terminal_focused():
 def main():
     global seconds, silent, fd, TICKTIME, SPINNER, SPINNERS
 
-    #i3 connection stuff
+    # i3 connection stuff
     i3 = i3ipc.Connection()
     fd = sys.stdin.fileno()
     # old_settings = termios.tcgetattr(fd)
@@ -215,7 +221,7 @@ def main():
     TICKTIME = 0.1
 
     if args.silent:
-        subprocess.Popen( [sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen([sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         exit()
     else:
         hide_cursor()
@@ -227,7 +233,7 @@ def main():
     if args.spinner is not None:
         try:
             SPINNER = SPINNERS[args.spinner]
-        except:
+        except Exception:
             SPINNER = SPINNERS[0]
 
     if args.time:
@@ -247,6 +253,11 @@ def main():
 
     if args.minutes:
         seconds += args.minutes * 60
+
+    if args.message:
+        write_message_to_file(args.message)
+    else:
+        write_message_to_file("No message available")
 
     if args.run:
         countup_seconds()
