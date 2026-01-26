@@ -19,11 +19,11 @@ def run_i3_msg(command: Sequence[str]) -> str:
 def focus_workspace(name: str) -> None:
     """Focus a workspace by name."""
     global commandWasFromHistory
-    run_i3_msg([f'workspace number "{name}:{name}"'])
+    run_i3_msg([f'workspace number "{name}"'])
 
 def move_to_workspace(name: str) -> None:
     """Move currently focused container to workspace"""
-    run_i3_msg([f'move container to workspace number "{name}:{name}"'])
+    run_i3_msg([f'move container to workspace number "{name}"'])
 
 def main() -> int:
     miscWorkspaces = ['1', '3', '6', '7', '14', '15', '16', '17', '18', '19']
