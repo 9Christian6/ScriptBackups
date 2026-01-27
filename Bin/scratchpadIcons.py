@@ -1,6 +1,7 @@
 #!/usr/bin/env /home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
 import json
 import subprocess
+import toml
 from pathlib import Path
 import re
 
@@ -16,20 +17,17 @@ def find_terminal_key_from_title(title):
         config key "VIFM" → match
     """
     config_keys = load_config_keys_and_values()
-    title_low = title.lower()
     # Find all keys that appear in the title
     matches = []
     for key in config_keys:
-        key_low = key.lower()
-        idx = title_low.find(key_low)
-        if idx != -1:
-            matches.append((idx, key))
-
+        if (key in title):
+            matches.append((key, config_keys[key]))
+            break
     # Return the key with the earliest appearance
     if matches:
         matches.sort(key=lambda x: x[0])  # sort by index in title
         return matches[0][1]
-    return "kitty"
+    return config_keys["kitty"]
 
 
 def find_browser_key_from_title(title):
@@ -41,21 +39,17 @@ def find_browser_key_from_title(title):
         config key "twitch" → match
     """
     config_keys = load_config_keys_and_values()
-    title_low = title.lower()
 
     # Find all keys that appear in the title
     matches = []
     for key in config_keys:
-        key_low = key.lower()
-        idx = title_low.find(key_low)
-        if idx != -1:
-            matches.append((idx, key))
-
+        if (key in title):
+            matches.append((key, config_keys[key]))
+            break
     # Return the key with the earliest appearance
     if matches:
         matches.sort(key=lambda x: x[0])  # sort by index in title
         return matches[0][1]
-
     return None
 
 
@@ -68,7 +62,7 @@ SPECIAL_CLASSES = {
     "brave-browser": find_browser_key_from_title,
     "Brave-browser": find_browser_key_from_title,
     "vivaldi-stable": find_browser_key_from_title,
-    "Alacritty": find_terminal_key_from_title,
+    "alacritty": find_terminal_key_from_title,
     "kitty": find_terminal_key_from_title
 }
 
@@ -112,13 +106,19 @@ def load_config_keys_and_values():
     """
     mapping = {}
     with CONFIG_PATH.open() as f:
-        for line in f:
-            m = re.match(r'\s*"([^"]+)"\s*=\s*"([^"]+)"', line)
-            if m:
-                key, value = m.group(1), m.group(2)
-                mapping[key] = value
+        mapping = toml.loads(f.read())
+    mappingLower = {}
+    for key, val in mapping.items():
+        mappingLower[key.lower()] = val
     return mapping
 
+def icon_for_class(config, app_class, title):
+    appIcon = ''
+    if app_class in SPECIAL_CLASSES:
+        appIcon = SPECIAL_CLASSES[app_class](title)
+    elif app_class in config:
+        appIcon = config[app_class]
+    return appIcon
 
 def main():
     windows = get_scratch_windows()
@@ -126,16 +126,9 @@ def main():
     results = []
 
     for win in windows:
-        app_class = win["class"]
-        title = win["title"]
-        # Decide whether to use class match or title match
-        if app_class in SPECIAL_CLASSES:
-            key = SPECIAL_CLASSES[app_class](title)
-        else:
-            key = next((k for k in config if k.lower() == app_class.lower()),
-                       None)
-        if key and key in config:
-            results.append(config[key])
+        app_class = win["class"].lower()
+        title = win["title"].lower()
+        results.append(icon_for_class(config, app_class, title))
     results = list(dict.fromkeys(results))
     print(" , ".join(results))
 
