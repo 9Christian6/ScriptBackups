@@ -59,7 +59,7 @@ def draw_box_border(width: int, left: str, middle: str, right: str) -> None:
     inner = width - 2
     if inner < 1:
         inner = 1
-    print(f"{MAGENTA}{left}{middle * inner}{right}{NC}", flush=True)
+    print(f"\r{MAGENTA}{left}{middle * inner}{right}{NC}", flush=True)
 
 # def remove_ansi_escape_sequences(text):
 #     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -161,42 +161,39 @@ def run_command_in_box(cmd: List[str], description: str) -> bool:
                     if not data:  # EOF
                         break
                     prefix = (MAGENTA + "│ " + NC).encode()
-
+                    suffix = (MAGENTA + " │" + NC).encode()
                     out = bytearray()
                     start = 0
-
-                    for i, b in enumerate(data):
-                        if b == 13:
+                    i = 0
+                    while i < len(data):
+                        b = data[i]
+                        if b == 13:  # \r
+                            # flush pending bytes before CR
+                            if start < i:
+                                out.extend(data[start:i])
+                            # emit CR and reinsert border
                             out.extend(b"\r")
                             out.extend(prefix)
+                            start = i + 1
+                            i += 1
                         if b == 10:  # \n
+                            # flush pending bytes including newline
                             out.extend(data[start:i+1])
                             out.extend(prefix)
                             start = i + 1
+                            i += 1
                             continue
-
-                    out.extend(data[start:])
-
-                    # If beginning of stream or after redraw, prefix once
-                    #if not hasattr(run_command_in_box, "_started"):
-                    #    out = prefix + out
-                    #    run_command_in_box._started = True
+                        i += 1
+                    # flush tail
+                    if start < len(data):
+                        out.extend(data[start:])
 
                     os.write(sys.stdout.fileno(), out)
-
                 except OSError:
                     break
-                    cols, rows = get_terminal_size()
-                    # data = (MAGENTA + "│" + NC).encode("utf-8") + data
 
                     # data = MAGENTA.encode("utf-8") + "│".encode("utf-8") + data + endBorder.encode("utf-8") + NC.encode("utf-8")
                     # data = MAGENTA.encode("utf-8") + "│".encode("utf-8") + data + "│".encode("utf-8") + NC.encode("utf-8")
-                    text_without_escape_sequences = remove_ansi_escape_sequences(data.decode("utf-8"), "|", "|")
-                    data = bytes(text_without_escape_sequences.encode())
-                    # print(text_without_escape_sequences)
-                    os.write(sys.stdout.fileno(), data)
-                except OSError:
-                    break
 
             # User input → subprocess (raw passthrough)
             if sys.stdin.fileno() in rlist:
