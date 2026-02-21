@@ -12,7 +12,7 @@ box() {
   cols=$(tput cols)
 
   # Leave 8 columns of margin to prevent wrapping
-  local inner=$((cols - 8))
+  local inner=$((cols - 2))
 
   printf "${MAGENTA}"
 
