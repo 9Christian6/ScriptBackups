@@ -6,25 +6,37 @@ MAGENTA='\033[38;2;255;0;255m'
 NC='\033[0m'
 # Update packages
 
-box() {
-  local msg="$1"
-  local cols inner
-  cols=$(tput cols 2>/dev/null)
-  [[ -z "$cols" || "$cols" -lt 20 ]] && cols=80
-  inner=$((cols - 2))
-
-  local hr
-  printf -v hr '%*s' "$inner" ''
-  hr=${hr// /─}
-
-  printf "%b╭%s╮%b\n" "${MAGENTA}" "$hr" "${NC}"
-  printf "%b│%b%-*s%b│%b\n" "${MAGENTA}" "${NC}" "$inner" "$msg" "${MAGENTA}" "${NC}"
-  printf "%b╰%s╯%b\n" "${MAGENTA}" "$hr" "${NC}"
-}
-
 print_box_top() {
   local inner="$1"
-  local hr
+  local label="$2"
+  local hr left_hr right_hr
+  local title
+  local left_width
+
+  if [[ -n "$label" ]]; then
+    label=$(sanitize_line "$label")
+    title=" ${label} "
+
+    if [[ ${#title} -gt "$inner" ]]; then
+      title=${title:0:inner}
+    fi
+
+    # Keep a short left border segment so the title starts near the left side.
+    left_width=2
+    if (( left_width + ${#title} > inner )); then
+      left_width=0
+    fi
+    local right_width=$((inner - left_width - ${#title}))
+
+    printf -v left_hr '%*s' "$left_width" ''
+    printf -v right_hr '%*s' "$right_width" ''
+    left_hr=${left_hr// /─}
+    right_hr=${right_hr// /─}
+
+    printf "%b╭%s%b%s%b%s╮%b\n" "${MAGENTA}" "$left_hr" "${GREEN}" "$title" "${MAGENTA}" "$right_hr" "${NC}"
+    return
+  fi
+
   printf -v hr '%*s' "$inner" ''
   hr=${hr// /─}
   printf "%b╭%s╮%b\n" "${MAGENTA}" "$hr" "${NC}"
@@ -64,13 +76,15 @@ sanitize_line() {
 }
 
 run_in_box() {
+  local label="$1"
+  shift
   local cols inner content_width
   cols=$(tput cols 2>/dev/null)
   [[ -z "$cols" || "$cols" -lt 20 ]] && cols=80
   inner=$((cols - 2))
   content_width=$inner
 
-  print_box_top "$inner"
+  print_box_top "$inner" "$label"
   "$@" 2>&1 | while IFS= read -r line || [[ -n "$line" ]]; do
     print_box_line "$content_width" "$line"
   done
@@ -80,21 +94,15 @@ run_in_box() {
 }
 
 
-box "Starting apt update"
-run_in_box sudo nala update && run_in_box sudo nala upgrade
-box "apt update done"
+run_in_box "sudo nala update" sudo nala update && run_in_box "sudo nala upgrade" sudo nala upgrade
 
 echo
 
-box "Starting snap update"
-run_in_box sudo snap refresh
-box "snap update done"
+run_in_box "sudo snap refresh" sudo snap refresh
 
 echo
 
-box "Starting flatpak update"
-run_in_box sudo flatpak update
-box "flatpak update done"
+run_in_box "sudo flatpak update" sudo flatpak update
 #promt the user if update should be executed again
 read -p "Update again? (Y/n): " yn
 if [[ "$yn" == "n" ]]; then
