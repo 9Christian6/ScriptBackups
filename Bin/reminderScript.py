@@ -151,8 +151,8 @@ def add_reminder(name, message, interval=None, weekdays=None, time_str=None, ena
 
         cursor.execute('''
             INSERT INTO reminders (name, message, type, config, last_triggered, enabled, pending, acknowledged_date)
-            VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
-        ''', (name, message, r_type, config_json, None, 1 if enabled else 0))
+            VALUES (?, ?, ?, ?, ?, ?, 1, NULL)
+        ''', (name, message, r_type, config_json, None, 1))
 
         conn.commit()
         time_info = f" at {reminder_time.strftime('%H:%M')}" if reminder_time else ""
@@ -343,10 +343,10 @@ def check_reminders(verbose=False, filter_id=None, filter_name=None):
         acknowledged_date = row['acknowledged_date']
 
         # Skip if already pending and not acknowledged for today
-        if pending == 1:
-            if acknowledged_date == today_str:
-                print('Skipping due to acknowledgment today')
-                continue  # Already acknowledged today
+        #if pending == 1:
+        #    if acknowledged_date == today_str:
+        #        print('Skipping due to acknowledgment today')
+        #        continue  # Already acknowledged today
             # else:
             #     # Reset pending for new day
             #     cursor.execute('UPDATE reminders SET pending = 0, acknowledged_date = NULL WHERE id = ?', (r_id,))
@@ -405,6 +405,68 @@ def check_reminders(verbose=False, filter_id=None, filter_name=None):
 
     return marked_pending
 
+def config_met(config):
+    if "days" in config:
+
+        if "time" in config:
+            reminder_time = datetime.strptime(config["time"], "%H:%M").time()
+        if not datetime.now().time() > reminder_time:
+            return False
+    return True
+
+def filter_by_pending(rows):
+    filtered_rows = list()
+    for row in rows:
+        if row['pending'] == 1:
+            filtered_rows.append(row)
+    return filtered_rows
+
+def filter_by_config(rows):
+    filtered_rows = list()
+    current_time = datetime.now().time()
+    for row in rows:
+        config = json.loads(row['config'])
+        if "time" in config:
+            reminder_time = datetime.strptime(config["time"], "%H:%M").time()
+            if not current_time > reminder_time:
+                continue
+        if "days" in config:
+            if date.today().weekday() not in config['days']:
+                continue
+        filtered_rows.append(row)
+    return filtered_rows
+
+
+def build_json_reminder(event):
+    return event['message']
+
+
+def build_polybar_reminder(event):
+    return event['message']
+
+
+def build_text_reminder(event):
+    return event['message']
+
+
+def build_reminders(format_type, events):
+    output = ""
+    reminders = list()
+    if format_type == 'json':
+        for event in events:
+               reminders.append(build_json_reminder(event))
+        output = ','.join(reminders)
+    if format_type == 'polybar':
+        for event in events:
+            reminders.append(build_polybar_reminder(event))
+        output = ','.join(reminders)
+    if format_type == 'text':
+        for event in events:
+            reminders.append(build_text_reminder(event))
+        output = '\n'.join(reminders)
+
+    return output
+
 def query_pending(format_type='text', filter_id=None, filter_name=None, show_all=False):
     """Query pending reminders for polybar display."""
     conn = get_db_connection()
@@ -415,7 +477,7 @@ def query_pending(format_type='text', filter_id=None, filter_name=None, show_all
     if show_all:
         query = "SELECT id, name, message, type, config, last_triggered, enabled, pending FROM reminders WHERE 1=1"
     else:
-        query = "SELECT id, name, message, type, config, last_triggered, enabled, pending FROM reminders WHERE enabled = 1 AND pending = 1 AND acknowledged_date IS NULL"
+        query = "SELECT id, name, message, type, config, last_triggered, enabled, pending FROM reminders WHERE enabled = 1 AND pending = 1"
 
     params = []
 
@@ -432,44 +494,12 @@ def query_pending(format_type='text', filter_id=None, filter_name=None, show_all
     conn.close()
 
     if not rows:
-        if format_type == 'text':
-            print("")
-        elif format_type == 'json':
-            print(json.dumps({"count": 0, "reminders": []}))
-        elif format_type == 'polybar':
-            print("")
         return
 
-    if format_type == 'json':
-        reminders = []
-        for row in rows:
-            reminders.append({
-                "id": row['id'],
-                "name": row['name'],
-                "message": row['message'],
-                "enabled": bool(row['enabled']),
-                "pending": bool(row['pending'])
-                })
-        output = {"count": len(reminders), "reminders": reminders}
-        print(json.dumps(output))
+    rows = filter_by_pending(rows)
+    rows = filter_by_config(rows)
 
-    elif format_type == 'polybar':
-        # Format for polybar: "🔔 2 | Brush Teeth, Journal"
-        names = [row['name'] for row in rows]
-        print(f"{', '.join(names)}")
-
-    else:  # text
-        for row in rows:
-            status = []
-            if row['enabled']:
-                status.append("ON")
-            else:
-                status.append("OFF")
-            if row['pending']:
-                status.append("PENDING")
-            status_str = ", ".join(status)
-            #print(f"[{row['id']}] {row['name']}: {row['message']} [{status_str}]")
-            print(f"{row['name']} {row['message']} [{status_str}]")
+    print(build_reminders(format_type, rows))
 
 def acknowledge_reminder(reminder_id):
     """Acknowledge a specific reminder."""
@@ -492,7 +522,7 @@ def acknowledge_reminder(reminder_id):
     conn.commit()
     conn.close()
 
-def acknowledge_all(filter_name=None):
+def reset_name(filter_name=None):
     """Acknowledge all pending reminders."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -500,17 +530,26 @@ def acknowledge_all(filter_name=None):
     today_str = date.today().isoformat()
 
     if filter_name:
-        cursor.execute('''
-            UPDATE reminders 
-            SET pending = 0, acknowledged_date = ? 
-            WHERE enabled = 1 AND pending = 1 AND name LIKE ?
-        ''', (today_str, f"%{filter_name}%"))
-    else:
-        cursor.execute('''
-            UPDATE reminders 
-            SET pending = 0, acknowledged_date = ? 
-            WHERE enabled = 1 AND pending = 1
-        ''', (today_str,))
+        command = "UPDATE reminders SET pending = 1, acknowledged_date = ? WHERE enabled = 1 AND pending = 0 AND name LIKE ?"# (today_str, f"%{filter_name}%")
+        cursor.execute(command, (today_str, filter_name))
+
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+    print(f"✓ {count} reminder(s) reset.")
+
+
+def acknowledge_name(filter_name=None):
+    """Acknowledge all pending reminders."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    today_str = date.today().isoformat()
+
+    if filter_name:
+        command = "UPDATE reminders SET pending = 0, acknowledged_date = ? WHERE enabled = 1 AND pending = 1 AND name LIKE ?"# (today_str, f"%{filter_name}%")
+        cursor.execute(command, (today_str, filter_name))
 
     count = cursor.rowcount
     conn.commit()
@@ -683,15 +722,19 @@ def main():
     parser_del = subparsers.add_parser('delete', help='Delete a reminder')
     parser_del.add_argument('id', type=int, help='ID of the reminder to delete')
 
-    # Reset Command
-    parser_reset = subparsers.add_parser('reset', help='Reset database (delete all reminders)')
+    # Reset Data Base Command
+    parser_reset = subparsers.add_parser('reset-db', help='Reset database (delete all reminders)')
     parser_reset.add_argument('--confirm', action='store_true', help='Confirm database reset')
+
+    # Reset Event Command 
+    parser_reset_event = subparsers.add_parser('reset', help='Set an event to pending')
+    parser_reset_event.add_argument('--name', type=str, help='Name of the event to be set to pending')
 
     args = parser.parse_args()
 
     if args.command == 'add':
         add_reminder(args.name, args.message, args.interval, args.weekdays, 
-                     args.time, enabled=not args.disabled)
+                     args.time, True)
     elif args.command == 'dump-db':
         dump_db()
     elif args.command == 'edit':
@@ -707,11 +750,7 @@ def main():
         if args.id:
             acknowledge_reminder(args.id)
         elif args.name:
-            acknowledge_all(filter_name=args.name)
-        elif args.all:
-            acknowledge_all()
-        else:
-            print("Error: Specify reminder ID, --name, or --all")
+            acknowledge_name(filter_name=args.name)
     elif args.command == 'toggle':
         if args.enable:
             toggle_reminder(args.id, enable=True)
@@ -723,8 +762,11 @@ def main():
         list_reminders(filter_id=args.id, filter_name=args.name)
     elif args.command == 'delete':
         delete_reminder(args.id)
-    elif args.command == 'reset':
+    elif args.command == 'reset-db':
         reset_database(confirm=args.confirm)
+    elif args.command == 'reset':
+        if args.name:
+            reset_name(args.name)
     else:
         parser.print_help()
 
