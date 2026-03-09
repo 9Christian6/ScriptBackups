@@ -11,6 +11,12 @@ mainbox {children: [listview];}
 listview {dynamic: true; fixed-height: false;}
 """
 
+ROFI_THEME_SHUTDOWN = """
+    inputbar { enabled: false; }
+    listview {dynamic: true; fixed-height: false;}
+    element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
+"""
+
 def handle_dankbarkeit():
     subprocess.run('/home/christian/Bin/Dankbarkeitv2.py')
 
@@ -30,7 +36,6 @@ def run_command(cmd, input_text=None):
 def notify(message):
     subprocess.run(["notify-send", message])
 
-
 def main():
     pending = run_command(QUERY_COMMAND)
 
@@ -42,7 +47,7 @@ def main():
     event_names = "\n".join(line.split()[0] for line in pending.splitlines())
 
     selected_event = run_command(
-            ["rofi", "-dmenu", "-theme-str", ROFI_THEME],
+            ["rofi", "-dmenu", "-theme-str", ROFI_THEME_SHUTDOWN],
             input_text=event_names
             )
 
