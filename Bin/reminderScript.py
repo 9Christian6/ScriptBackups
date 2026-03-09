@@ -1,12 +1,8 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
-from pprint import pprint
-import os
 import argparse
 import sqlite3
 import json
-import sys
-import re
-from datetime import datetime, date, time
+from datetime import datetime, date
 from pathlib import Path
 
 # Configuration
@@ -74,7 +70,7 @@ def reset_database(confirm=False):
 
         # Recreate fresh database
         init_db()
-        print(f"✓ Fresh database created.")
+        print("✓ Fresh database created.")
         print("✓ All reminders cleared. IDs will start from 1.")
         return True
     except Exception as e:
@@ -111,6 +107,9 @@ def add_reminder(name, message, interval=None, weekdays=None, time_str=None, ena
         print("Error: Please choose either --interval OR --weekdays, not both.")
         return False
 
+    if not weekdays:
+        weekdays = {}
+
     reminder_time = None
     if time_str:
         reminder_time = parse_time(time_str)
@@ -121,6 +120,7 @@ def add_reminder(name, message, interval=None, weekdays=None, time_str=None, ena
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    config = {}
     try:
         if interval:
             r_type = 'interval'
@@ -148,11 +148,11 @@ def add_reminder(name, message, interval=None, weekdays=None, time_str=None, ena
             config["time"] = reminder_time.strftime("%H:%M")
 
         config_json = json.dumps(config)
-
+        insert_id = cursor.execute("select max(id) from reminders;").fetchone()[0] + 1
         cursor.execute('''
-            INSERT INTO reminders (name, message, type, config, last_triggered, enabled, pending, acknowledged_date)
-            VALUES (?, ?, ?, ?, ?, ?, 1, NULL)
-        ''', (name, message, r_type, config_json, None, 1))
+            INSERT INTO reminders (id, name, message, type, config, last_triggered, enabled, pending, acknowledged_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL)
+        ''', (insert_id, name, message, r_type, config_json, None, 1))
 
         conn.commit()
         time_info = f" at {reminder_time.strftime('%H:%M')}" if reminder_time else ""
@@ -202,13 +202,11 @@ def edit_reminder(reminder_id, name=None, message=None, interval=None, weekdays=
     # Handle type and config changes
     new_type = current_type
     new_config = current_config.copy()
-    config_changed = False
 
     # If interval or weekdays provided, update type and config
     if interval is not None:
         new_type = 'interval'
         new_config = {"days": int(interval)}
-        config_changed = True
         # Preserve time if it exists
         if "time" in current_config:
             new_config["time"] = current_config["time"]
@@ -231,7 +229,6 @@ def edit_reminder(reminder_id, name=None, message=None, interval=None, weekdays=
                     conn.close()
                     return False
         new_config = {"days": day_indices}
-        config_changed = True
         # Preserve time if it exists
         if "time" in current_config:
             new_config["time"] = current_config["time"]
@@ -242,7 +239,6 @@ def edit_reminder(reminder_id, name=None, message=None, interval=None, weekdays=
             # Remove time if empty string provided
             if "time" in new_config:
                 del new_config["time"]
-                config_changed = True
         else:
             reminder_time = parse_time(time_str)
             if not reminder_time:
@@ -250,7 +246,6 @@ def edit_reminder(reminder_id, name=None, message=None, interval=None, weekdays=
                 conn.close()
                 return False
             new_config["time"] = reminder_time.strftime("%H:%M")
-            config_changed = True
 
     # Build update query
     updates = []
@@ -339,17 +334,6 @@ def check_reminders(verbose=False, filter_id=None, filter_name=None):
         r_type = row['type']
         config = json.loads(row['config'])
         last_triggered_str = row['last_triggered']
-        pending = row['pending']
-        acknowledged_date = row['acknowledged_date']
-
-        # Skip if already pending and not acknowledged for today
-        #if pending == 1:
-        #    if acknowledged_date == today_str:
-        #        print('Skipping due to acknowledgment today')
-        #        continue  # Already acknowledged today
-            # else:
-            #     # Reset pending for new day
-            #     cursor.execute('UPDATE reminders SET pending = 0, acknowledged_date = NULL WHERE id = ?', (r_id,))
 
         # Check time requirement if specified
         if "time" in config:
@@ -459,7 +443,7 @@ def build_reminders(format_type, events):
     if format_type == 'polybar':
         for event in events:
             reminders.append(build_polybar_reminder(event))
-        output = ','.join(reminders)
+        output = ', '.join(reminders)
     if format_type == 'text':
         for event in events:
             reminders.append(build_text_reminder(event))
@@ -583,26 +567,21 @@ def toggle_reminder(reminder_id, enable=None):
     conn.commit()
     conn.close()
 
-def dump_db(filter_id=None, filter_name=None, show_all=True):
+def dump_db():
     """List all stored reminders."""
     print("Commencing db dump")
     con = get_db_connection()
-    cursor = con.cursor()
     rows = con.execute('SELECT * FROM reminders').fetchall()
     for row in rows:
         print(dict(row))
 
-def list_reminders(filter_id=None, filter_name=None, show_all=True):
+def list_reminders(filter_id=None, filter_name=None):
     """List all stored reminders."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    try:
-        terminal_width = os.get_terminal_size().columns 
-    except:
-        terminal_width = 10
     query = "SELECT * FROM reminders WHERE 1=1"
     params = []
-
+    
     if filter_id:
         query += " AND id = ?"
         params.append(filter_id)
@@ -615,37 +594,61 @@ def list_reminders(filter_id=None, filter_name=None, show_all=True):
 
     cursor.execute(query, params)
     rows = cursor.fetchall()
+
+
     conn.close()
 
     if not rows:
         print("No reminders found matching your criteria.")
         return
 
-    print(f"{'ID':<5} {'Name':<20} {'Type':<10} {'Config':<30} {'Status':<20} {'Last Triggered':<20}")
-    print("-" * terminal_width)
+    column_dict = {
+            'id_length': len(str(rows[0]['id'])),
+            'name_length': len(rows[0]['name']),
+            'type_length': len(rows[0]['type']),
+            'config_length': len(rows[0]['config']),
+            'date_length': len(rows[0]['acknowledged_date'])
+            }
     for row in rows:
         config = json.loads(row['config'])
+        if len(str(row['id'])) > column_dict['id_length']:
+            column_dict['id_length'] = len(str(row['id']))
+        if len(row['name']) > column_dict['name_length']:
+            column_dict['name_length'] = len(row['name'])
+        if len(row['type']) > column_dict['type_length']:
+            column_dict['type_length'] = len(row['type'])
         if 'time' in config:
-            config_str = f"days={config['days']}, time={config['time']}"
+            config_str = f"days={config['days']}, time={config['time']} "
         else:
-            config_str = f"days={config['days']}"
+            config_str = f"days={config['days']} "
+        if len(config_str) > column_dict['config_length']:
+            column_dict['config_length'] = len(config_str)
+        if row['acknowledged_date'] is None:
+            continue
+        date_string = datetime.strptime(row['acknowledged_date'], '%Y-%m-%d').strftime('%d.%m.%Y')
+        if len(date_string) > column_dict['date_length']:
+            column_dict['date_length'] = len(row['acknowledged_date'])
 
-        status = []
+    padding = 4
+    header_string = "ID".ljust(column_dict['id_length'] + padding)
+    header_string += "Name".ljust(column_dict['name_length'] + padding)
+    header_string += "Type".ljust(column_dict['type_length'] + padding)
+    header_string += "Config".ljust(column_dict['config_length'] + padding)
+    header_string += "Last Triggered"
+    print(header_string)
 
-        if row['enabled']:
-            status.append("ON")
+    for row in rows:
+        row_string = ''
+        row_string += str(row['id']).ljust(column_dict['id_length'] + padding)
+        row_string += row['name'].ljust(column_dict['name_length'] + padding)
+        row_string += row['type'].ljust(column_dict['type_length'] + padding)
+        row_string += row['config'].ljust(column_dict['config_length'] + padding)
+        if row['acknowledged_date'] is None:
+            row_string += "Not triggered yet"
         else:
-            status.append("OFF")
+            row_string += datetime.strptime(row['acknowledged_date'], '%Y-%m-%d').strftime('%d.%m.%Y')
+        print(row_string)
 
-        if row['pending'] and not row['acknowledged_date']:
-            status.append("PENDING")
-
-        status_str = " | ".join(status)
-        last_triggered_str = "Never"
-        if row['last_triggered']:
-            last_triggered_str = row['last_triggered']
-
-        print(f"{row['id']:<5} {row['name']:<20} {row['type']:<10} {config_str:<30} {status_str:<20} {last_triggered_str:<10}")
 
 def delete_reminder(reminder_id):
     """Delete a reminder by ID."""
