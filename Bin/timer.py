@@ -6,8 +6,9 @@ import signal
 import argparse
 import subprocess
 import atexit
-# import termios
-# import tty
+import threading
+import termios
+import tty
 import i3ipc
 # import curses
 from datetime import datetime, timedelta
@@ -24,6 +25,10 @@ seconds = 0
 paused = False
 ctrl_pressed = False
 silent = False
+ack_waiting = False
+ack_enabled = True
+ack_interval = 8.0
+ack_event = threading.Event()
 
 def hide_cursor():
     sys.stdout.write("\033[?25l")
@@ -37,7 +42,10 @@ def exit_handler():
     write_message_to_file('')
     # with open('/home/christian/Bin/timeLeft', 'w') as f:
     #    f.write('')
+    fd = sys.stdin.fileno()
+    termios.tcflush(fd, termios.TCIFLUSH)
     show_cursor()
+    clear_current_line()
 
 atexit.register(exit_handler)
 
@@ -54,15 +62,14 @@ def daemonize():
         sys.exit(0)
 
     with open('/dev/null', 'r') as dev_null_r, \
-         open('/dev/null', 'a+') as dev_null_w:
-        os.dup2(dev_null_r.fileno(), sys.stdin.fileno())
-        os.dup2(dev_null_w.fileno(), sys.stdout.fileno())
-        os.dup2(dev_null_w.fileno(), sys.stderr.fileno())
+            open('/dev/null', 'a+') as dev_null_w:
+                os.dup2(dev_null_r.fileno(), sys.stdin.fileno())
+                os.dup2(dev_null_w.fileno(), sys.stdout.fileno())
+                os.dup2(dev_null_w.fileno(), sys.stderr.fileno())
 
 def signal_handler(sig, frame):
     global seconds
     time_display = str(timedelta(seconds=int(seconds)))
-    # msg = f"\rCounting interrupted at {int(seconds)} second(s)!\n"
     msg = f"\rCounting interrupted at {time_display}!\n"
     sys.stdout.write(msg)
     show_cursor()
@@ -81,9 +88,19 @@ def notify(message, reading='', sound=True):
         reading = message
     subprocess.Popen(['notify-send', message])
     if message:
-        subprocess.Popen(['espeak-ng', '-v', 'German', reading])
+        subprocess.Popen(['/home/christian/Bin/startSilent.sh', 'tts.sh', reading])
     elif sound:
         subprocess.Popen("play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def repeat_alert_until_ack(message, reading='', interval=8.0):
+    global ack_waiting
+    ack_waiting = True
+    ack_event.clear()
+    while not ack_event.is_set():
+        notify(message, reading)
+        if ack_event.wait(timeout=interval):
+            break
+    ack_waiting = False
 
 # --- Timer functions ---
 def countup_seconds():
@@ -107,14 +124,22 @@ def calculate_spinner_char_index(seconds):
 
 
 def countdown_seconds(message):
-    global seconds, TICKTIME
+    global seconds, TICKTIME, ack_enabled, ack_interval
+    write_message_to_file(message)
     while seconds > 0:
         if not paused:
             display_time(seconds)
             seconds = round(seconds - TICKTIME, 1)
         time.sleep(TICKTIME)
     sys.stdout.write("\rCountdown finished\n" if not message else "")
-    notify(message or "Countdown finished", message or "Countdown finishd")
+    final_message = message or "Countdown finished"
+    final_reading = message or "Countdown finished"
+    if ack_enabled:
+        sys.stdout.write("\nPress Esc to acknowledge the alert.\n")
+        sys.stdout.flush()
+        repeat_alert_until_ack(final_message, final_reading, ack_interval)
+    else:
+        notify(final_message, final_reading)
 
 def display_time(seconds):
     try:
@@ -129,17 +154,37 @@ def display_time(seconds):
     sys.stdout.flush()
 
 # --- Keyboard handlers ---
+
+def on_key_event(event):
+    if event.name == 'z':
+        return
+    # for the keys we don't want to suppress, we just send the events back out
+    if event.event_type == 'down':
+        keyboard.Controller.press(event.name)
+    else:
+        keyboard.Controller.release(event.name)
+
+def clear_current_line():
+    cols, rows = os.get_terminal_size()
+    sys.stdout.write('\r' + ' ' * cols + '\r')
+    sys.stdout.flush()
+
 def on_press(key):
-    global seconds, fd, paused
+    global seconds, paused, ack_waiting
+    if ack_waiting and key == keyboard.Key.esc:
+        ack_event.set()
+        return
+
     if not is_terminal_focused():
         return
     try:
+        clear_current_line()
         if key.char == '+':
             seconds += 10
         if key.char == '-':
             seconds = max(0, seconds - 10)
         if key.char == 'l':
-            os.system('clear')
+            clear_current_line()
         if key.char == 'p':
             paused = not paused
             time_display = str(timedelta(seconds=int(seconds)))
@@ -160,17 +205,18 @@ def run_pomodoro(pomodoro_len, short_break, long_break, cycles):
     try:
         while True:
             round_count += 1
-            print(f"\nStarting Pomodoro #{round_count}")
+            print(f"Starting Pomodoro #{round_count}")
             seconds = pomodoro_len * 60
-            countdown_seconds("Pomodoro finished! Take a break!")
+            print(f"Pomodoro #{round_count}")
+            countdown_seconds(f"Pomodoro #{round_count}")
             if round_count % cycles == 0:
                 print("Taking a long break.")
                 seconds = long_break * 60
-                countdown_seconds("Long break over. Back to work!")
+                countdown_seconds("Long break")
             else:
                 print("Taking a short break.")
                 seconds = short_break * 60
-                countdown_seconds("Short break over. Ready for next Pomodoro?")
+                countdown_seconds("Short break.")
     except KeyboardInterrupt:
         print("\nPomodoro session ended.")
 
@@ -182,17 +228,14 @@ def is_terminal_focused():
     i3 = i3ipc.Connection()
     focused = i3.get_tree().find_focused()
     this_window_id = int(os.environ.get("WINDOWID", "0"))
-
     return bool(focused and focused.window == this_window_id)
 
 # --- Main ---
 def main():
-    global seconds, silent, fd, TICKTIME, SPINNER, SPINNERS
+    global seconds, silent, TICKTIME, SPINNER, SPINNERS, ack_enabled, ack_interval 
 
     # i3 connection stuff
     i3 = i3ipc.Connection()
-    fd = sys.stdin.fileno()
-    # old_settings = termios.tcgetattr(fd)
 
     # Start keyboard listener
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
@@ -211,6 +254,8 @@ def main():
     parser.add_argument('--long-break', type=int, default=15, help='Long break length (min)')
     parser.add_argument('--cycles', type=int, default=4, help='Pomodoros before long break')
     parser.add_argument('--spinner', type=int, default=0, help='Index of the spinner used in animation, defaults to bar spinner')
+    parser.add_argument('--no-ack', action='store_true', help='Do not repeat alert until acknowledged')
+    parser.add_argument('--ack-interval', type=float, default=8.0, help='Seconds between repeated alerts while waiting for acknowledgment')
 
     if len(sys.argv) <= 1:
         parser.print_help()
@@ -219,6 +264,8 @@ def main():
     args = parser.parse_args()
     silent = args.silent
     TICKTIME = 0.1
+    ack_enabled = not args.no_ack
+    ack_interval = max(0.5, args.ack_interval)
 
     if args.silent:
         subprocess.Popen([sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -226,15 +273,15 @@ def main():
     else:
         hide_cursor()
 
-    if args.pomodoro:
-        run_pomodoro(args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1)
-        return
-
     if args.spinner is not None:
         try:
             SPINNER = SPINNERS[args.spinner]
         except Exception:
             SPINNER = SPINNERS[0]
+
+    if args.pomodoro:
+        run_pomodoro(args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1)
+        return
 
     if args.time:
         try:
@@ -254,16 +301,12 @@ def main():
     if args.minutes:
         seconds += args.minutes * 60
 
-    if args.message:
-        write_message_to_file(args.message)
-    else:
-        write_message_to_file("No message available")
-
     if args.run:
         countup_seconds()
     elif seconds > 0:
         countdown_seconds(args.message or "")
 
+    exit_handler()
     show_cursor()
 
 if __name__ == '__main__':
