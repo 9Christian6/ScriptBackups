@@ -7,6 +7,7 @@ import argparse
 import subprocess
 import atexit
 import threading
+import select
 import termios
 import tty
 import i3ipc
@@ -21,14 +22,64 @@ SPINNERFRAME = ['⠏', '⠇', '⠧', '⠦', '⠴', '⠼', '⠸', '⠹', '⠙', '
 SPINNERCIRCLE = ["( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)", "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"]
 SPINNERFILLINGBAR = ["▰▰▰▰▰▰▰", "▰▰▰▰▰▰▱", "▰▰▰▰▰▱▱", "▰▰▰▰▱▱▱", "▰▰▰▱▱▱▱", "▰▰▱▱▱▱▱", "▰▱▱▱▱▱▱"]
 SPINNERS = [SPINNERCLOCK, SPINNERBAR, SPINNERFRAME, SPINNERCIRCLE, SPINNERFILLINGBAR]
+BARSYMBOLSFULL = ['■', '▓']
+BARSYMBOLSEMPTY = ['▢', '▒']
 seconds = 0
 paused = False
-ctrl_pressed = False
-silent = False
 ack_waiting = False
 ack_enabled = True
 ack_interval = 8.0
 ack_event = threading.Event()
+stdin_fd = None
+stdin_settings = None
+terminal_input_enabled = False
+
+def handle_args(args):
+    global seconds_total, seconds, TICKTIME, ack_enabled, ack_interval, SPINNER, SPINNERS
+    if args.silent:
+        subprocess.Popen([sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        exit()
+    else:
+        hide_cursor()
+
+    if args.spinner is not None:
+        try:
+            SPINNER = SPINNERS[args.spinner]
+        except Exception:
+            SPINNER = SPINNERS[0]
+
+    if args.pomodoro:
+        run_pomodoro(args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1)
+        return
+
+    if args.time:
+        try:
+            now = datetime.now()
+            fmt = '%H:%M:%S' if len(args.time) >= 8 else '%H:%M'
+            target = datetime.combine(now, datetime.strptime(args.time, fmt).time())
+            if target <= now:
+                target += timedelta(days=1)
+            seconds = (target - now).total_seconds()
+        except ValueError:
+            sys.stderr.write("Invalid time format. Use HH:MM[:SS].\n")
+            sys.exit(1)
+
+    if args.message:
+        write_message_to_file(args.message)
+
+    if args.seconds:
+        seconds += args.seconds
+
+    if args.minutes:
+        seconds += args.minutes * 60
+
+    seconds_total = seconds
+
+    if args.run:
+        countup_seconds()
+    elif seconds > 0:
+        countdown_seconds(args.message or "")
+
 
 def hide_cursor():
     sys.stdout.write("\033[?25l")
@@ -36,16 +87,30 @@ def hide_cursor():
 def show_cursor():
     sys.stdout.write("\033[?25h")
 
+def setup_terminal_input():
+    global stdin_fd, stdin_settings, terminal_input_enabled
+    if not sys.stdin.isatty():
+        return False
+    stdin_fd = sys.stdin.fileno()
+    stdin_settings = termios.tcgetattr(stdin_fd)
+    tty.setcbreak(stdin_fd)
+    terminal_input_enabled = True
+    return True
+
+def restore_terminal_input():
+    global stdin_fd, stdin_settings, terminal_input_enabled
+    if stdin_fd is None or stdin_settings is None:
+        return
+    termios.tcsetattr(stdin_fd, termios.TCSADRAIN, stdin_settings)
+    stdin_settings = None
+    terminal_input_enabled = False
+
 # --- Cleanup handler ---
 def exit_handler():
     write_time_to_file('')
-    write_message_to_file('')
-    # with open('/home/christian/Bin/timeLeft', 'w') as f:
-    #    f.write('')
-    fd = sys.stdin.fileno()
-    termios.tcflush(fd, termios.TCIFLUSH)
+    restore_terminal_input()
     show_cursor()
-    clear_current_line()
+    #clear_current_line()
 
 atexit.register(exit_handler)
 
@@ -82,6 +147,7 @@ def write_time_to_file(time_str):
 def write_message_to_file(message):
     with open('/home/christian/Bin/timerMessage', 'w') as f:
         f.write(message + '\n')
+    subprocess.Popen("pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message), shell=True)
 
 def notify(message, reading='', sound=True):
     if reading == '':
@@ -92,14 +158,13 @@ def notify(message, reading='', sound=True):
     elif sound:
         subprocess.Popen("play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def repeat_alert_until_ack(message, reading='', interval=8.0):
+def repeat_alert_until_ack(message, reading='', interval=2.0):
     global ack_waiting
     ack_waiting = True
     ack_event.clear()
     while not ack_event.is_set():
         notify(message, reading)
-        if ack_event.wait(timeout=interval):
-            break
+        ack_event.wait(interval)
     ack_waiting = False
 
 # --- Timer functions ---
@@ -123,9 +188,21 @@ def calculate_spinner_char_index(seconds):
     return index
 
 
+def calculate_bar(seconds_passed, bar_length):
+    global seconds_total
+    bar_full = BARSYMBOLSFULL[1]
+    bar_empty = BARSYMBOLSEMPTY[1]
+    bar = ""
+    seconds_passed = seconds_total - seconds_passed
+    passed_time_percent = seconds_passed / seconds_total
+    passed_bar = (int)(passed_time_percent * bar_length + 1)
+    bar += bar_full * passed_bar
+    missing_bar = bar_length - passed_bar
+    bar += bar_empty * missing_bar
+    return bar
+
 def countdown_seconds(message):
     global seconds, TICKTIME, ack_enabled, ack_interval
-    write_message_to_file(message)
     while seconds > 0:
         if not paused:
             display_time(seconds)
@@ -146,57 +223,96 @@ def display_time(seconds):
         width = os.get_terminal_size().columns - 2
     except OSError:
         width = 80
+    time_bar = calculate_bar(seconds, 10)
     time_display = str(timedelta(seconds=int(seconds)))
     spinner_char = SPINNER[calculate_spinner_char_index(seconds)]
     width -= len(spinner_char)
-    write_time_to_file(spinner_char + ' ' + time_display)
+    write_time_to_file(spinner_char + ' ' + time_display + ' ' + time_bar)
     sys.stdout.write(f"\r{time_display.ljust(width)}{spinner_char}")
+    #sys.stdout.write(f"\r{time_bar}")
     sys.stdout.flush()
 
 # --- Keyboard handlers ---
 
-def on_key_event(event):
-    if event.name == 'z':
-        return
-    # for the keys we don't want to suppress, we just send the events back out
-    if event.event_type == 'down':
-        keyboard.Controller.press(event.name)
-    else:
-        keyboard.Controller.release(event.name)
+# def on_key_event(event):
+#     if event.name == 'z':
+#         return
+#     # for the keys we don't want to suppress, we just send the events back out
+#     if event.event_type == 'down':
+#         keyboard.Controller.press(event.name)
+#     else:
+#         keyboard.Controller.release(event.name)
 
 def clear_current_line():
+    subprocess.Popen(['/usr/bin/clear'])
     cols, rows = os.get_terminal_size()
     sys.stdout.write('\r' + ' ' * cols + '\r')
     sys.stdout.flush()
 
-def on_press(key):
+def handle_keypress(key):
     global seconds, paused, ack_waiting
-    if ack_waiting and key == keyboard.Key.esc:
+    if ack_waiting and key == 'esc':
         ack_event.set()
+        return
+
+    if key not in ('+', '-', 'l', 'p'):
+        return
+
+    clear_current_line()
+    if key == '+':
+        seconds += 10
+    if key == '-':
+        seconds = max(0, seconds - 10)
+    if key == 'l':
+        clear_current_line()
+    if key == 'p':
+        paused = not paused
+        time_display = str(timedelta(seconds=int(seconds)))
+        sys.stdout.write(f"\rTimer paused at {time_display}")
+        sys.stdout.flush()
+
+def read_terminal_key():
+    if stdin_fd is None:
+        return None
+
+    try:
+        raw = os.read(stdin_fd, 1)
+    except OSError:
+        return None
+
+    if not raw:
+        return None
+    if raw == b'\x1b':
+        # Drain terminal escape sequences like arrow keys without treating them as Esc.
+        while select.select([stdin_fd], [], [], 0.01)[0]:
+            os.read(stdin_fd, 1)
+        return 'esc'
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+
+def read_terminal_keys():
+    while True:
+        key = read_terminal_key()
+        if key is None:
+            continue
+        handle_keypress(key)
+
+def on_press(key):
+    if key == keyboard.Key.esc:
+        handle_keypress('esc')
+        return
+
+    if terminal_input_enabled:
         return
 
     if not is_terminal_focused():
         return
     try:
-        clear_current_line()
-        if key.char == '+':
-            seconds += 10
-        if key.char == '-':
-            seconds = max(0, seconds - 10)
-        if key.char == 'l':
-            clear_current_line()
-        if key.char == 'p':
-            paused = not paused
-            time_display = str(timedelta(seconds=int(seconds)))
-            sys.stdout.write(f"\rTimer paused at {time_display}")
-            sys.stdout.flush()
+        handle_keypress(key.char)
     except AttributeError:
         return
-
-def on_release(key):
-    global ctrl_pressed
-    if key == keyboard.Key.ctrl:
-        ctrl_pressed = False
 
 # --- Pomodoro ---
 def run_pomodoro(pomodoro_len, short_break, long_break, cycles):
@@ -234,13 +350,6 @@ def is_terminal_focused():
 def main():
     global seconds, silent, TICKTIME, SPINNER, SPINNERS, ack_enabled, ack_interval 
 
-    # i3 connection stuff
-    i3 = i3ipc.Connection()
-
-    # Start keyboard listener
-    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-    listener.start()
-
     parser = argparse.ArgumentParser(description='A simple timer')
     parser.add_argument('-s', '--seconds', type=int, help='Number of seconds')
     parser.add_argument('-m', '--minutes', type=int, help='Number of minutes')
@@ -260,52 +369,19 @@ def main():
     if len(sys.argv) <= 1:
         parser.print_help()
         sys.exit(1)
-
     args = parser.parse_args()
-    silent = args.silent
     TICKTIME = 0.1
     ack_enabled = not args.no_ack
     ack_interval = max(0.5, args.ack_interval)
 
-    if args.silent:
-        subprocess.Popen([sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        exit()
-    else:
-        hide_cursor()
+    if not args.silent:
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
+        if setup_terminal_input():
+            input_thread = threading.Thread(target=read_terminal_keys, daemon=True)
+            input_thread.start()
 
-    if args.spinner is not None:
-        try:
-            SPINNER = SPINNERS[args.spinner]
-        except Exception:
-            SPINNER = SPINNERS[0]
-
-    if args.pomodoro:
-        run_pomodoro(args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1)
-        return
-
-    if args.time:
-        try:
-            now = datetime.now()
-            fmt = '%H:%M:%S' if len(args.time) >= 8 else '%H:%M'
-            target = datetime.combine(now, datetime.strptime(args.time, fmt).time())
-            if target <= now:
-                target += timedelta(days=1)
-            seconds = (target - now).total_seconds()
-        except ValueError:
-            sys.stderr.write("Invalid time format. Use HH:MM[:SS].\n")
-            sys.exit(1)
-
-    if args.seconds:
-        seconds += args.seconds
-
-    if args.minutes:
-        seconds += args.minutes * 60
-
-    if args.run:
-        countup_seconds()
-    elif seconds > 0:
-        countdown_seconds(args.message or "")
-
+    handle_args(args)
     exit_handler()
     show_cursor()
 
