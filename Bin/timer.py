@@ -316,22 +316,25 @@ def on_press(key):
 
 # --- Pomodoro ---
 def run_pomodoro(pomodoro_len, short_break, long_break, cycles):
-    global seconds
+    global seconds, seconds_total
     round_count = 0
     try:
         while True:
             round_count += 1
             print(f"Starting Pomodoro #{round_count}")
             seconds = pomodoro_len * 60
+            seconds_total = seconds
             print(f"Pomodoro #{round_count}")
             countdown_seconds(f"Pomodoro #{round_count}")
             if round_count % cycles == 0:
                 print("Taking a long break.")
                 seconds = long_break * 60
+                seconds_total = seconds
                 countdown_seconds("Long break")
             else:
                 print("Taking a short break.")
                 seconds = short_break * 60
+                seconds_total = seconds
                 countdown_seconds("Short break.")
     except KeyboardInterrupt:
         print("\nPomodoro session ended.")
