@@ -1,62 +1,50 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
 import os
 import subprocess
+import sys
 from datetime import datetime, timedelta
 
-
-def get_next_weekday(target_weekday):
-    today = datetime.today()
-    days_ahead = (target_weekday - today.weekday()) % 7
-    if days_ahead == 0:
-        days_ahead = 7  # Ensure it picks the next occurrence, not today
-    return today + timedelta(days=days_ahead)
+journal_path = os.path.expanduser("~/Documents/Tagebuch.txt")
+separator = "--------------------------------------------------------------------\n"
 
 
 def format_date(date):
-    return date.strftime('%d.%m.%y')
+    return date.strftime("%d.%m.%y")
+
+
+def find_date(offset_days):
+    with open(journal_path, "r") as journal:
+        journal.readline()
+        date_line = journal.readline().strip()
+        date = datetime.strptime(date_line, "%d.%m.%Y")
+        new_date = date + timedelta(days=offset_days)
+        return datetime.strftime(new_date, "%d.%m.%Y")
+
+
+def prepend_to_journal(text):
+    if os.path.exists(journal_path) and os.path.getsize(journal_path) > 0:
+        with open(journal_path, "r") as original:
+            journal_content = original.read()
+        with open(journal_path, "w") as prepended:
+            prepended.write(text + "\n" + journal_content)
 
 
 def main():
-    # Define file paths
-    journal_path = os.path.expanduser("~/Documents/Tagebuch")
-    reminder_path = os.path.expanduser("~/Documents/TagebuchErinnerung.txt")
-
-    # Create a separator line
-    separator = "--------------------------------------------------------------------\n"
-
-    now = datetime.now()
-    if now.hour < 18:
-        entry_date = now - timedelta(days=1)
-    else:
-        entry_date = now
-
-    # Get today's date and compute the Sunday of the current week
-    formatted_today = entry_date.strftime("%d.%m.%Y")
-
-    # Read the last line of the file if it exists
-    last_line = ""
-    if os.path.exists(journal_path) and os.path.getsize(journal_path) > 0:
-        with open(journal_path, "r") as f:
-            lines = f.readlines()
-            if lines:
-                last_line = lines[-1].strip(
-                )  # Read the last line and remove trailing newlines
-
-    # Only write the new entry if the last line isn't already a separator
-    if last_line != separator.strip():
-        entry = f"\n{separator}{formatted_today}\n{separator}"
-        with open(journal_path, "a") as f:
-            f.write(entry)
-
-    # Open the journal in Alacritty with Neovim
-    subprocess.run([
-        "kitty", "--detach", "nvim", "+normal Go", "+startinsert", journal_path
-    ])
-
-    # Log the current date in the reminder file
-    # current_date = today.strftime('%d.%m.%Y')
-    with open(reminder_path, "a") as f:
-        f.write(f"{formatted_today}\n")
+    offset_days = 1
+    if (len(sys.argv) > 1):
+        offset_days = int(sys.argv[1])
+    date_separator = f"{separator}{find_date(offset_days)}\n{separator}"
+    prepend_to_journal(date_separator)
+    subprocess.run(
+        [
+            "/home/christian/Bin/kitty",
+            "--detach",
+            "nvim",
+            "+normal }O",
+            "+startinsert",
+            journal_path,
+        ]
+    )
 
 
 if __name__ == "__main__":
