@@ -1,10 +1,10 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
 import argparse
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
-DB_FILE = Path("/home/christian/Opt/ReminderDataBase/reminders.db")
+DB_FILE = Path("/home/christian/Opt/ReminderDataBase/remindersWithTime.db")
 
 WEEKDAY_MAP = {
     "mon": 0, "tue": 1, "wed": 2, "thu": 3,
@@ -113,6 +113,58 @@ def add_reminder(name, message, weekdays, time_str=None, enabled=True):
     print("Reminder added with id", event_id)
 
 
+def update_pending_events():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT e.id, e.name, e.message, s.weekday, s.time, st.last_triggered
+    FROM events e
+    JOIN event_schedule s ON e.id = s.event_id
+    LEFT JOIN event_state st ON e.id = st.event_id
+    WHERE e.enabled = 1
+    """)
+
+    rows = cur.fetchall()
+    today = date.today().weekday()
+    now = datetime.now().strftime("%H:%M")
+    today_str = date.today().isoformat()
+
+
+    triggered = []
+
+    for r in rows:
+        event_weekday = r["weekday"]
+        last_triggered = r["last_triggered"]
+        next_valid_day = next_trigger_day(last_triggered, event_weekday)
+
+        if r["weekday"] != today:
+            continue
+
+        if r["time"] and r["time"] > now:
+            continue
+
+        if r["last_triggered"] == today_str:
+            continue
+
+        cur.execute(
+            "UPDATE event_state SET pending = 1, last_triggered = ? WHERE event_id = ?",
+            (today_str, r["id"])
+        )
+
+        triggered.append(r)
+
+    conn.commit()
+    conn.close()
+    return
+
+
+def next_trigger_day(last_triggered, weekday) -> datetime:
+    next_trigger_day = datetime.fromisoformat(last_triggered)
+    while next_trigger_day.weekday() != weekday:
+        next_trigger_day = next_trigger_day + timedelta(days=1)   
+    return next_trigger_day
+
 def check_reminders(verbose=False):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -127,20 +179,31 @@ def check_reminders(verbose=False):
 
     rows = cur.fetchall()
 
-    today = date.today().weekday()
+    today_date = date.today()
     now = datetime.now().strftime("%H:%M")
-    today_str = date.today().isoformat()
-
+    today_str = today_date.isoformat()
     triggered = []
 
     for r in rows:
+        next_trigger = next_trigger_day(r["last_triggered"], r["weekday"])
+        # Normalize next_trigger to a date object for reliable comparison
+        if isinstance(next_trigger, str):
+            next_trigger_date = date.fromisoformat(next_trigger)
+        elif isinstance(next_trigger, datetime):
+            next_trigger_date = next_trigger.date()
+        else:
+            next_trigger_date = next_trigger  # Assume it's already a date object
 
-        if r["weekday"] != today:
+        # 1. Skip if the scheduled trigger date is still in the future
+        if today_date < next_trigger_date:
             continue
 
-        if r["time"] and r["time"] > now:
+        # 2. If today is the exact scheduled day, respect the time condition.
+        #    If today is PAST the scheduled day (missed event), bypass the time check and trigger immediately.
+        if today_date == next_trigger_date and r["time"] and r["time"] > now:
             continue
 
+        # 3. Prevent duplicate triggers on the same day
         if r["last_triggered"] == today_str:
             continue
 
@@ -159,17 +222,95 @@ def check_reminders(verbose=False):
 
     return triggered
 
+# def check_reminders(verbose=False):
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+# 
+#     cur.execute("""
+#     SELECT e.id, e.name, e.message, s.weekday, s.time, st.last_triggered
+#     FROM events e
+#     JOIN event_schedule s ON e.id = s.event_id
+#     LEFT JOIN event_state st ON e.id = st.event_id
+#     WHERE e.enabled = 1
+#     """)
+# 
+#     rows = cur.fetchall()
+# 
+#     today = date.today().weekday()
+#     now = datetime.now().strftime("%H:%M")
+#     today_str = date.today().isoformat()
+#     triggered = []
+# 
+#     for r in rows:
+#         print("id: " + str(r["id"]))
+#         next_trigger = next_trigger_day(r["last_triggered"], r["weekday"])
+#         if r["weekday"] != today:
+#             continue
+# 
+#         if r["time"] and r["time"] > now:
+#             continue
+# 
+#         if r["last_triggered"] == today_str:
+#             continue
+# 
+#         cur.execute(
+#             "UPDATE event_state SET pending = 1, last_triggered = ? WHERE event_id = ?",
+#             (today_str, r["id"])
+#         )
+# 
+#         triggered.append(r)
+# 
+#         if verbose:
+#             print("Triggered:", r["name"])
+# 
+#     conn.commit()
+#     conn.close()
+# 
+#     return triggered
+
 
 def query_pending(polybar_format= False):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
+    query_string="""
     SELECT e.id, e.name, e.message
     FROM events e
     JOIN event_state st ON e.id = st.event_id
     WHERE st.pending = 1 AND e.enabled = 1
-    """)
+    """
+
+    # potentially better query: 
+    query_string_with_time_check="""
+WITH event_schedules AS (
+        SELECT id
+        FROM event_schedule
+        GROUP BY id, weekday
+    ),
+    aggregated_events AS (
+        SELECT e.id, e.name, e.message,
+               MAX(CASE WHEN sched.time IS NULL OR TIME(sched.time) > TIME('now') THEN sched.time END) AS schedule_time
+        FROM events e
+        JOIN event_state state ON e.id = state.event_id AND state.pending = 1
+        LEFT JOIN (
+            SELECT es.event_id, es.time
+            FROM event_schedule es
+            WHERE (es.time IS NULL OR TIME(es.time) > TIME('now'))
+        ) sched ON e.id = sched.event_id
+        GROUP BY e.id, e.name, e.message
+    )
+    SELECT id, name, message
+    FROM aggregated_events as ae
+    WHERE ae.schedule_time IS NULL OR TIME('now') > TIME(ae.schedule_time);
+    """
+
+    cur.execute(query_string_with_time_check)
+    # cur.execute("""
+    # SELECT e.id, e.name, e.message
+    # FROM events e
+    # JOIN event_state st ON e.id = st.event_id
+    # WHERE st.pending = 1 AND e.enabled = 1
+    # """)
 
     rows = cur.fetchall()
     conn.close()
@@ -182,7 +323,35 @@ def query_pending(polybar_format= False):
     print(', '.join(messages))
 
 
+def acknowledge_journal():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    last_acked = cur.execute("SELECT acknowledged_date FROM event_state WHERE event_id = 1")
+    last_acked_string = last_acked.fetchone()[0]
+    next_ack_date = (datetime.strptime(last_acked_string, "%Y-%m-%d") + timedelta(days=1)).date()
+    cur.execute(
+        "UPDATE event_state SET acknowledged_date = ? WHERE event_id = ?",
+        (next_ack_date.isoformat(), 1)
+    )
+    #if (datetime.today().date() == next_ack_date.isoformat()):
+    if (next_ack_date >= datetime.today().date()):
+        cur.execute(
+            "UPDATE event_state SET pending = 0 WHERE event_id = ?",
+            ('1')
+        )
+    # else:
+    #     cur.execute(
+    #         "UPDATE event_state SET acknowledged_date = ? WHERE event_id = ?",
+    #         (next_ack_date, 1)
+    #     )
+    conn.commit()
+    conn.close()
+
+
 def acknowledge(reminder_id):
+    if reminder_id == 1:
+        acknowledge_journal()
+        return
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -279,4 +448,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
