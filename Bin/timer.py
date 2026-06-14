@@ -1,4 +1,5 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
+import re
 import os
 import sys
 import time
@@ -7,23 +8,42 @@ import argparse
 import subprocess
 import atexit
 import threading
-import select
 import termios
 import tty
 import i3ipc
+
 # import curses
 from datetime import datetime, timedelta
 from pynput import keyboard
 
 # --- Globals ---
-SPINNERBAR = ['\\', '-', '/', '|', '\\', '-', '/', '|']
-SPINNERCLOCK = ['🕛', '🕚', '🕘', '🕖', '🕔', '🕓', '🕒', '🕑', '🕐']
-SPINNERFRAME = ['⠏', '⠇', '⠧', '⠦', '⠴', '⠼', '⠸', '⠹', '⠙', '⠋']
-SPINNERCIRCLE = ["( ●    )", "(  ●   )", "(   ●  )", "(    ● )", "(     ●)", "(    ● )", "(   ●  )", "(  ●   )", "( ●    )", "(●     )"]
-SPINNERFILLINGBAR = ["▰▰▰▰▰▰▰", "▰▰▰▰▰▰▱", "▰▰▰▰▰▱▱", "▰▰▰▰▱▱▱", "▰▰▰▱▱▱▱", "▰▰▱▱▱▱▱", "▰▱▱▱▱▱▱"]
+SPINNERBAR = ["\\", "-", "/", "|", "\\", "-", "/", "|"]
+SPINNERCLOCK = ["🕛", "🕚", "🕘", "🕖", "🕔", "🕓", "🕒", "🕑", "🕐"]
+SPINNERFRAME = ["⠏", "⠇", "⠧", "⠦", "⠴", "⠼", "⠸", "⠹", "⠙", "⠋"]
+SPINNERCIRCLE = [
+    "( ●    )",
+    "(  ●   )",
+    "(   ●  )",
+    "(    ● )",
+    "(     ●)",
+    "(    ● )",
+    "(   ●  )",
+    "(  ●   )",
+    "( ●    )",
+    "(●     )",
+]
+SPINNERFILLINGBAR = [
+    "▰▰▰▰▰▰▰",
+    "▰▰▰▰▰▰▱",
+    "▰▰▰▰▰▱▱",
+    "▰▰▰▰▱▱▱",
+    "▰▰▰▱▱▱▱",
+    "▰▰▱▱▱▱▱",
+    "▰▱▱▱▱▱▱",
+]
 SPINNERS = [SPINNERCLOCK, SPINNERBAR, SPINNERFRAME, SPINNERCIRCLE, SPINNERFILLINGBAR]
-BARSYMBOLSFULL = ['■', '▓']
-BARSYMBOLSEMPTY = ['▢', '▒']
+BARSYMBOLSFULL = ["■", "▓"]
+BARSYMBOLSEMPTY = ["▢", "▒"]
 seconds = 0
 paused = False
 ack_waiting = False
@@ -33,11 +53,25 @@ ack_event = threading.Event()
 stdin_fd = None
 stdin_settings = None
 terminal_input_enabled = False
+keyboard_controller = keyboard.Controller()
+
 
 def handle_args(args):
-    global seconds_total, seconds, TICKTIME, ack_enabled, ack_interval, SPINNER, SPINNERS
+    global \
+        seconds_total, \
+        seconds, \
+        TICKTIME, \
+        ack_enabled, \
+        ack_interval, \
+        SPINNER, \
+        SPINNERS
     if args.silent:
-        subprocess.Popen([sys.executable] + sys.argv[:-1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(
+            [sys.executable] + sys.argv[:-1],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         exit()
     else:
         hide_cursor()
@@ -49,13 +83,15 @@ def handle_args(args):
             SPINNER = SPINNERS[0]
 
     if args.pomodoro:
-        run_pomodoro(args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1)
+        run_pomodoro(
+            args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1
+        )
         return
 
     if args.time:
         try:
             now = datetime.now()
-            fmt = '%H:%M:%S' if len(args.time) >= 8 else '%H:%M'
+            fmt = "%H:%M:%S" if len(args.time) >= 8 else "%H:%M"
             target = datetime.combine(now, datetime.strptime(args.time, fmt).time())
             if target <= now:
                 target += timedelta(days=1)
@@ -84,8 +120,10 @@ def handle_args(args):
 def hide_cursor():
     sys.stdout.write("\033[?25l")
 
+
 def show_cursor():
     sys.stdout.write("\033[?25h")
+
 
 def setup_terminal_input():
     global stdin_fd, stdin_settings, terminal_input_enabled
@@ -97,6 +135,7 @@ def setup_terminal_input():
     terminal_input_enabled = True
     return True
 
+
 def restore_terminal_input():
     global stdin_fd, stdin_settings, terminal_input_enabled
     if stdin_fd is None or stdin_settings is None:
@@ -105,14 +144,14 @@ def restore_terminal_input():
     stdin_settings = None
     terminal_input_enabled = False
 
+
 # --- Cleanup handler ---
 def exit_handler():
-    write_time_to_file('')
+    write_time_to_file("")
     restore_terminal_input()
     show_cursor()
-    #clear_current_line()
+    clear_current_line()
 
-atexit.register(exit_handler)
 
 # --- Helpers ---
 def daemonize():
@@ -126,11 +165,11 @@ def daemonize():
     if pid > 0:
         sys.exit(0)
 
-    with open('/dev/null', 'r') as dev_null_r, \
-            open('/dev/null', 'a+') as dev_null_w:
-                os.dup2(dev_null_r.fileno(), sys.stdin.fileno())
-                os.dup2(dev_null_w.fileno(), sys.stdout.fileno())
-                os.dup2(dev_null_w.fileno(), sys.stderr.fileno())
+    with open("/dev/null", "r") as dev_null_r, open("/dev/null", "a+") as dev_null_w:
+        os.dup2(dev_null_r.fileno(), sys.stdin.fileno())
+        os.dup2(dev_null_w.fileno(), sys.stdout.fileno())
+        os.dup2(dev_null_w.fileno(), sys.stderr.fileno())
+
 
 def signal_handler(sig, frame):
     global seconds
@@ -140,32 +179,46 @@ def signal_handler(sig, frame):
     show_cursor()
     sys.exit(0)
 
+
 def write_time_to_file(time_str):
-    with open('/home/christian/Bin/timeLeft', 'w') as f:
-        f.write(time_str + '\n')
+    with open("/home/christian/Bin/timeLeft", "w") as f:
+        f.write(time_str + "\n")
+
 
 def write_message_to_file(message):
-    with open('/home/christian/Bin/timerMessage', 'w') as f:
-        f.write(message + '\n')
-    subprocess.Popen("pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message), shell=True)
+    with open("/home/christian/Bin/timerMessage", "w") as f:
+        f.write(message + "\n")
+    subprocess.Popen(
+        "pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message),
+        shell=True,
+    )
 
-def notify(message, reading='', sound=True):
-    if reading == '':
+
+def notify(message, reading="", sound=True):
+    if reading == "":
         reading = message
-    subprocess.Popen(['notify-send', message])
+    subprocess.Popen(["notify-send", message])
     if message:
-        subprocess.Popen(['/home/christian/Bin/startSilent.sh', 'tts.sh', reading])
+        subprocess.Popen(["/home/christian/Bin/startSilent.sh", "tts.sh", reading])
     elif sound:
-        subprocess.Popen("play /home/christian/Music/Bellsound.aiff -q", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            "play /home/christian/Music/Bellsound.aiff -q",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-def repeat_alert_until_ack(message, reading='', interval=2.0):
+
+def repeat_alert_until_ack(message, reading="", interval=2.0):
     global ack_waiting
     ack_waiting = True
     ack_event.clear()
     while not ack_event.is_set():
         notify(message, reading)
         ack_event.wait(interval)
+    exit_handler()
     ack_waiting = False
+
 
 # --- Timer functions ---
 def countup_seconds():
@@ -180,8 +233,9 @@ def countup_seconds():
             seconds = round(seconds + TICKTIME, 1)
             time.sleep(TICKTIME)
 
+
 def calculate_spinner_char_index(seconds):
-    decimals = str(seconds).split('.')
+    decimals = str(seconds).split(".")
     if len(decimals) == 1:
         return 0
     index = int((seconds * len(SPINNER)) % len(SPINNER))
@@ -201,6 +255,7 @@ def calculate_bar(seconds_passed, bar_length):
     bar += bar_empty * missing_bar
     return bar
 
+
 def countdown_seconds(message):
     global seconds, TICKTIME, ack_enabled, ack_interval
     while seconds > 0:
@@ -208,7 +263,6 @@ def countdown_seconds(message):
             display_time(seconds)
             seconds = round(seconds - TICKTIME, 1)
         time.sleep(TICKTIME)
-    sys.stdout.write("\rCountdown finished\n" if not message else "")
     final_message = message or "Countdown finished"
     final_reading = message or "Countdown finished"
     if ack_enabled:
@@ -218,101 +272,133 @@ def countdown_seconds(message):
     else:
         notify(final_message, final_reading)
 
-def display_time(seconds):
+
+def visible_length(text):
+    # ANSI escape code pattern
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+    # Remove ANSI codes and return the length of the visible text
+    clean_text = ansi_escape.sub("", text)
+    return len(clean_text)
+
+
+def display_content(content):
     try:
         width = os.get_terminal_size().columns - 2
     except OSError:
         width = 80
-    time_bar = calculate_bar(seconds, 10)
-    time_display = str(timedelta(seconds=int(seconds)))
-    spinner_char = SPINNER[calculate_spinner_char_index(seconds)]
-    width -= len(spinner_char)
-    write_time_to_file(spinner_char + ' ' + time_display + ' ' + time_bar)
-    sys.stdout.write(f"\r{time_display.ljust(width)}{spinner_char}")
-    #sys.stdout.write(f"\r{time_bar}")
+    terminal_prompt_left = os.environ["LEFT_PROMPT_LINE"].replace('"', "")
+    terminal_prompt_right = os.environ["RIGHT_PROMPT_LINE"].replace('"', "")
+    width_terminal_prompt_r = visible_length(terminal_prompt_right)
+    width_terminal_prompt_l = visible_length(terminal_prompt_left)
+    width_content_display = len(content)
+    width_padding = (
+        width
+        - width_content_display
+        - width_terminal_prompt_l
+        - width_terminal_prompt_r
+        + 16
+    )
+    content_prompt = (
+        terminal_prompt_left + content + " " * width_padding + terminal_prompt_right
+    )
+    sys.stdout.write(f"\r{content_prompt}")
     sys.stdout.flush()
 
-# --- Keyboard handlers ---
 
-# def on_key_event(event):
-#     if event.name == 'z':
-#         return
-#     # for the keys we don't want to suppress, we just send the events back out
-#     if event.event_type == 'down':
-#         keyboard.Controller.press(event.name)
-#     else:
-#         keyboard.Controller.release(event.name)
+def display_time(seconds):
+    terminal_prompt_left = ""
+    terminal_prompt_right = ""
+    width_terminal_prompt_r = 0
+    width_terminal_prompt_l = 0
+    try:
+        terminal_prompt_left = os.environ["LEFT_PROMPT_LINE"].replace('"', "")
+        terminal_prompt_right = os.environ["RIGHT_PROMPT_LINE"].replace('"', "")
+        width_terminal_prompt_r = visible_length(terminal_prompt_right)
+        width_terminal_prompt_l = visible_length(terminal_prompt_left)
+        width = os.get_terminal_size().columns - 2
+    except:
+        width = 80
+    spinner_char = SPINNER[calculate_spinner_char_index(seconds)]
+    time_bar = calculate_bar(seconds, 10)
+    time_display = str(timedelta(seconds=int(seconds))).strip()
+    width_time_display = len(time_display)
+    width_spinner = len(spinner_char)
+    width_padding = (
+        width
+        - width_time_display
+        - width_spinner
+        - width_terminal_prompt_l
+        - width_terminal_prompt_r
+        + 16
+    )
+    time_display_prompt = (
+        terminal_prompt_left
+        + time_display
+        + " " * width_padding
+        + spinner_char
+        + terminal_prompt_right
+    )
+    width -= len(spinner_char)
+    write_time_to_file(spinner_char + " " + time_display + " " + time_bar)
+    sys.stdout.write(f"\r{time_display_prompt}")
+    sys.stdout.flush()
+
 
 def clear_current_line():
-    subprocess.Popen(['/usr/bin/clear'])
-    cols, rows = os.get_terminal_size()
-    sys.stdout.write('\r' + ' ' * cols + '\r')
-    sys.stdout.flush()
-
-def handle_keypress(key):
-    global seconds, paused, ack_waiting
-    if ack_waiting and key == 'esc':
-        ack_event.set()
-        return
-
-    if key not in ('+', '-', 'l', 'p'):
-        return
-
-    clear_current_line()
-    if key == '+':
-        seconds += 10
-    if key == '-':
-        seconds = max(0, seconds - 10)
-    if key == 'l':
-        clear_current_line()
-    if key == 'p':
-        paused = not paused
-        time_display = str(timedelta(seconds=int(seconds)))
-        sys.stdout.write(f"\rTimer paused at {time_display}")
+    try:
+        cols, rows = os.get_terminal_size()
+        terminal_prompt = os.environ["LEFT_PROMPT_LINE"]
+        sys.stdout.write(
+            "\r" + terminal_prompt + " " * (cols - len(terminal_prompt)) + "\r"
+        )
         sys.stdout.flush()
+    except KeyError:
+        return
 
-def read_terminal_key():
-    if stdin_fd is None:
-        return None
-
-    try:
-        raw = os.read(stdin_fd, 1)
-    except OSError:
-        return None
-
-    if not raw:
-        return None
-    if raw == b'\x1b':
-        # Drain terminal escape sequences like arrow keys without treating them as Esc.
-        while select.select([stdin_fd], [], [], 0.01)[0]:
-            os.read(stdin_fd, 1)
-        return 'esc'
-    try:
-        return raw.decode('utf-8')
-    except UnicodeDecodeError:
-        return None
-
-def read_terminal_keys():
-    while True:
-        key = read_terminal_key()
-        if key is None:
-            continue
-        handle_keypress(key)
 
 def on_press(key):
-    if key == keyboard.Key.esc:
-        handle_keypress('esc')
-        return
+    global ack_enabled, seconds_total, seconds, paused, ack_waiting
 
-    if terminal_input_enabled:
+    if key == keyboard.Key.esc:
+        ack_event.set()
         return
 
     if not is_terminal_focused():
         return
+
     try:
-        handle_keypress(key.char)
+        pressed_char = key.char
     except AttributeError:
         return
+
+    if pressed_char == "q":
+        exit_handler()
+        os.kill(os.getpid(), signal.SIGINT)
+        return
+
+    if pressed_char == "+":
+        seconds += 10
+        seconds_total += 10
+        return
+
+    if pressed_char == "-":
+        seconds = max(0, seconds - 10)
+        seconds_total = max(0, seconds_total - 10)
+        return
+
+    if pressed_char == "l":
+        clear_current_line()
+        return
+
+    if pressed_char == "p":
+        paused = not paused
+        time_display = str(timedelta(seconds=int(seconds)))
+        display_content(f"rTimer paused at {time_display}")
+        # sys.stdout.write(f"\rTimer paused at {time_display}")
+        # sys.stdout.flush()
+        return
+
 
 # --- Pomodoro ---
 def run_pomodoro(pomodoro_len, short_break, long_break, cycles):
@@ -339,6 +425,7 @@ def run_pomodoro(pomodoro_len, short_break, long_break, cycles):
     except KeyboardInterrupt:
         print("\nPomodoro session ended.")
 
+
 def is_terminal_focused():
     """
     Returns True if the terminal running this script is focused in i3,
@@ -349,25 +436,51 @@ def is_terminal_focused():
     this_window_id = int(os.environ.get("WINDOWID", "0"))
     return bool(focused and focused.window == this_window_id)
 
+
 # --- Main ---
 def main():
-    global seconds, silent, TICKTIME, SPINNER, SPINNERS, ack_enabled, ack_interval 
+    global seconds, silent, TICKTIME, SPINNER, SPINNERS, ack_enabled, ack_interval
 
-    parser = argparse.ArgumentParser(description='A simple timer')
-    parser.add_argument('-s', '--seconds', type=int, help='Number of seconds')
-    parser.add_argument('-m', '--minutes', type=int, help='Number of minutes')
-    parser.add_argument('-r', '--run', action='store_true', help='Count up indefinitely')
-    parser.add_argument('-t', '--time', type=str, help='Counts until HH:MM[:SS]')
-    parser.add_argument('--message', type=str, help='Message displayed when timer finishes')
-    parser.add_argument('--silent', action='store_true', help='Run timer in background')
-    parser.add_argument('--pomodoro', action='store_true', help='Enable Pomodoro mode')
-    parser.add_argument('--pomodoro-length', type=int, default=20, help='Pomodoro length (min)')
-    parser.add_argument('--short-break', type=int, default=5, help='Short break length (min)')
-    parser.add_argument('--long-break', type=int, default=15, help='Long break length (min)')
-    parser.add_argument('--cycles', type=int, default=4, help='Pomodoros before long break')
-    parser.add_argument('--spinner', type=int, default=0, help='Index of the spinner used in animation, defaults to bar spinner')
-    parser.add_argument('--no-ack', action='store_true', help='Do not repeat alert until acknowledged')
-    parser.add_argument('--ack-interval', type=float, default=8.0, help='Seconds between repeated alerts while waiting for acknowledgment')
+    atexit.register(exit_handler)
+    parser = argparse.ArgumentParser(description="A simple timer")
+    parser.add_argument("-s", "--seconds", type=int, help="Number of seconds")
+    parser.add_argument("-m", "--minutes", type=int, help="Number of minutes")
+    parser.add_argument(
+        "-r", "--run", action="store_true", help="Count up indefinitely"
+    )
+    parser.add_argument("-t", "--time", type=str, help="Counts until HH:MM[:SS]")
+    parser.add_argument(
+        "--message", type=str, help="Message displayed when timer finishes"
+    )
+    parser.add_argument("--silent", action="store_true", help="Run timer in background")
+    parser.add_argument("--pomodoro", action="store_true", help="Enable Pomodoro mode")
+    parser.add_argument(
+        "--pomodoro-length", type=int, default=20, help="Pomodoro length (min)"
+    )
+    parser.add_argument(
+        "--short-break", type=int, default=5, help="Short break length (min)"
+    )
+    parser.add_argument(
+        "--long-break", type=int, default=15, help="Long break length (min)"
+    )
+    parser.add_argument(
+        "--cycles", type=int, default=4, help="Pomodoros before long break"
+    )
+    parser.add_argument(
+        "--spinner",
+        type=int,
+        default=0,
+        help="Index of the spinner used in animation, defaults to bar spinner",
+    )
+    parser.add_argument(
+        "--no-ack", action="store_true", help="Do not repeat alert until acknowledged"
+    )
+    parser.add_argument(
+        "--ack-interval",
+        type=float,
+        default=8.0,
+        help="Seconds between repeated alerts while waiting for acknowledgment",
+    )
 
     if len(sys.argv) <= 1:
         parser.print_help()
@@ -377,17 +490,15 @@ def main():
     ack_enabled = not args.no_ack
     ack_interval = max(0.5, args.ack_interval)
 
-    if not args.silent:
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
-        if setup_terminal_input():
-            input_thread = threading.Thread(target=read_terminal_keys, daemon=True)
-            input_thread.start()
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
 
     handle_args(args)
+    listener.stop()
     exit_handler()
     show_cursor()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     main()
