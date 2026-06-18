@@ -1,6 +1,7 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
 import argparse
 import sqlite3
+import pandas
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
@@ -166,34 +167,36 @@ def query_pending(polybar_format= False):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    query_string_with_time_check="""
-    WITH event_schedules AS (
-        SELECT id
-        FROM event_schedule
-        GROUP BY id, weekday
-    ),
-    aggregated_events AS (
-        SELECT e.id, e.name, e.message, MAX(CASE WHEN sched.time IS NULL OR TIME(sched.time) > TIME('now') THEN sched.time END) AS schedule_time
-        FROM events e
-        JOIN event_state state ON e.id = state.event_id AND state.pending = 1
-        LEFT JOIN (
-            SELECT es.event_id, es.time
-            FROM event_schedule es
-            WHERE (es.time IS NULL OR TIME(es.time) > TIME('now'))
-        )
-        sched ON e.id = sched.event_id
-        GROUP BY e.id, e.name, e.message
-    )
-    SELECT id, name, message
-    FROM aggregated_events as ae
-    WHERE ae.schedule_time IS NULL OR TIME('now') > TIME(ae.schedule_time);
+    query_string_all_events="""
+        select * 
+        from event_schedule 
+        join event_state using(event_id)
+        join events on event_schedule.event_id=events.id
     """
-
-    cur.execute(query_string_with_time_check)
+    cur.execute(query_string_all_events)
     rows = cur.fetchall()
+    should_be_printed = []
+    for r in rows:
+        if r['enabled'] != 1:
+            continue
+        if r['pending'] != 1:
+            continue
+        last_triggered = datetime.strptime(r['last_triggered'], "%Y-%m-%d")
+        stale_since = datetime.today() - last_triggered
+        if stale_since > timedelta(days=2):
+            should_be_printed.append(r)
+            continue
+        if r['weekday'] != datetime.today().weekday():
+            continue
+        if r['time'] is not None:
+            trigger_time = datetime.strptime(r['time'], "%H:%M").time()
+            current_time = datetime.now().time()
+            if trigger_time > current_time:
+                continue
+        should_be_printed.append(r)
     conn.close()
     messages = []
-    for r in rows:
+    for r in should_be_printed:
         if(polybar_format):
             messages.append(f"{r['id']} {r['message']}")
         else:
@@ -254,6 +257,89 @@ def list_reminders():
     conn.close()
     for r in rows:
         print(r['id'], r['name'], r['weekday'], r['time'])
+
+def infer_type(value):
+    """
+    Attempts to parse a value into the most fitting Python type.
+    """
+    # If it's already a native non-string type (or None), return it as is
+    if value is None or isinstance(value, (int, float, bool, bytes)):
+        return value
+    
+    # If it's a string, attempt to infer a more specific type
+    if isinstance(value, str):
+        val_stripped = value.strip()
+        
+        # Check for boolean or null representations
+        if val_stripped.lower() in ('true', 'false'):
+            return val_stripped.lower() == 'true'
+        if val_stripped.lower() in ('none', 'null', ''):
+            return None
+            
+        # Try parsing as integer
+        try:
+            return int(val_stripped)
+        except ValueError:
+            pass
+            
+        # Try parsing as float
+        try:
+            return float(val_stripped)
+        except ValueError:
+            pass
+            
+    # Fallback to original string if no other type fits
+    return value
+
+def execute_and_print_query(query: str):
+    """
+    Executes a SQL query, parses the results into fitting Python types, 
+    and prints all values.
+    """
+    try:
+        # Connect to the database (use ':memory:' for testing without a file)
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            # Execute the query
+            cursor.execute(query)
+            
+            # Check if the query returns rows (e.g., SELECT statements)
+            if cursor.description is None:
+                print(f"Query executed successfully. Rows affected: {cursor.rowcount}")
+                return
+            
+            # Fetch all rows and get column names
+            rows = cursor.fetchall()
+            column_names = [description[0] for description in cursor.description]
+            
+            if not rows:
+                print("Query executed successfully, but no rows were returned.")
+                return
+            
+            print(f"--- Found {len(rows)} row(s) ---")
+            
+            # Process and print each row
+            for row_idx, row in enumerate(rows, start=1):
+                print(f"\n[Row {row_idx}]")
+                parsed_row = {}
+                for col_idx, raw_value in enumerate(row):
+                    col_name = column_names[col_idx]
+                    
+                    # Parse into fitting type
+                    parsed_value = infer_type(raw_value)
+                    parsed_row[col_name] = parsed_value
+                    
+                    # Print the variable name, value, and its inferred type
+                    type_name = type(parsed_value).__name__
+                    print(f"  {col_name:<15} = {str(parsed_value):<15} (type: {type_name})")
+                    
+            return parsed_row # Returns the last row as a dictionary, optional
+
+    except sqlite3.Error as e:
+        print(f"SQLite error occurred: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
 
 def main():
