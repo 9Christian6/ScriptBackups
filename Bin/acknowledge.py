@@ -1,41 +1,22 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
-
-import datetime
-import shlex
+import shutil
 import subprocess
+import datetime
+import sys
+import shlex
+import os
+import glob
+from pathlib import Path
 
-QUERY_COMMAND = [
-    "/home/christian/Bin/reminderScript.py",
-    "query",
-    "--format",
-    "acknowledge",
-]
+REMINDER_SCRIPT = "/home/christian/Bin/reminderScript.py"
 
-LIST_COMMAND = [
-    "/home/christian/Bin/reminderScript.py",
-    "list",
-]
+QUERY_COMMAND = [REMINDER_SCRIPT, "query"]
+LIST_COMMAND = [REMINDER_SCRIPT, "list"]
 
 ROFI_THEME = """configuration { show-icons: false; border-radius: 6px; }
 inputbar { enabled: false; }
-listview { dynamic: true; fixed-height: false; }
-element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }"""
-
-
-ROFI_THEME_SLIM = (
-    ROFI_THEME
-    + """
-window { width: 7%; border-radius: 6px; }
+listview { fixed-height: false; }
 """
-)
-
-
-def handle_dankbarkeit():
-    subprocess.run("/home/christian/Bin/Dankbarkeit.py")
-
-
-def handle_tagebuch():
-    subprocess.run("/home/christian/Bin/Tagebuch.py")
 
 
 def run_command(cmd, input_text=None):
@@ -43,198 +24,177 @@ def run_command(cmd, input_text=None):
     return result.stdout.strip()
 
 
-def notify(message):
-    subprocess.run(["notify-send", message])
+def notify(msg):
+    subprocess.run(["notify-send", msg])
 
 
 def select_option(options):
-    selected_option = run_command(
-        ["rofi", "-i", "-dmenu", "-theme-str", ROFI_THEME],
-        input_text="\n".join(options),
-    ).strip()
-    if select_option == "":
-        quit()
-    return selected_option
 
+    if not options:
+        return None
 
-def get_action():
-    # Send only names to rofi
-    actions = ["Acknowledge", "Reset", "Add", "Edit", "Delete"]
-    if actions == "":
-        quit()
-    return select_option(actions)
+    selection = run_command(
+            ["rofi", "-i", "-dmenu", "-theme-str", ROFI_THEME], "\n".join(options)
+            )
+
+    return selection.strip() if selection else None
 
 
 def get_input(prompt):
-    rofi_args = [
-        "rofi",
-        "-dmenu",
-        "-p",
-        prompt,
-        "-theme",
-        "/home/christian/.config/rofi/themes/command-palette.rasi",
-    ]
-    # user_input = subprocess.run( rofi_args, input="", text=True, capture_output=True)
-    user_input = run_command(rofi_args)
-    return user_input
+
+    return run_command(
+            [
+                "rofi",
+                "-dmenu",
+                "-p",
+                prompt,
+                "-theme",
+                "/home/christian/.config/rofi/themes/command-palette.rasi",
+                ]
+            )
 
 
-def reset_event():
-    return
+def normalize_weekdays(s):
 
-
-def acknowledge_event():
-    pending = run_command(QUERY_COMMAND)
-    if pending == "":
-        quit()
-    events = []
-    names = []
-    for line in pending.splitlines():
-        event_id, name = line.split(maxsplit=1)
-        events.append((event_id, name))
-        names.append(name)
-
-    # Build mapping name -> id
-    name_to_id = {name: event_id for event_id, name in events}
-
-    # Select Event by name
-    selected_event = select_option(names)
-
-    # Get the id
-    selected_event_id = name_to_id.get(selected_event)
-
-    print(selected_event_id)
-    if not selected_event:
-        notify("No Event Acknowledged")
-        return
-
-    if selected_event == "Tagebuch":
-        handle_tagebuch()
-
-    if selected_event == "DankbarkeitsTagebuch":
-        handle_dankbarkeit()
-
-    ack_command = [
-        "/home/christian/Bin/reminderScript.py",
-        "acknowledge",
-        "--id",
-        selected_event_id,
-    ]
-
-    print(" ".join(shlex.quote(x) for x in ack_command))
-    notify(" ".join(shlex.quote(x) for x in ack_command))
-    response = run_command(ack_command)
-
-
-def normalize_weekdays(s: str) -> str:
-    valid_days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-    order = {day: i for i, day in enumerate(valid_days)}
+    valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
     if not s.strip():
         raise ValueError("Empty weekday list")
 
-    days = [d.strip() for d in s.split(",")]
+    days = [d.strip().lower() for d in s.split(",")]
 
-    # Reject empty elements like ",mon"
-    if any(not d for d in days):
-        raise ValueError("Invalid weekday list")
-
-    # Validate weekday names
     for d in days:
-        if d not in valid_days:
+        if d not in valid:
             raise ValueError(f"Invalid weekday: {d}")
 
-    # Sort in weekday order
-    days_sorted = sorted(days, key=lambda d: order[d])
+    order = {d: i for i, d in enumerate(valid)}
 
-    return ", ".join(days_sorted)
+    return " ".join(sorted(days, key=lambda d: order[d]))
+
+
+def acknowledge_event():
+    pending = run_command(QUERY_COMMAND)
+
+    if not pending:
+        notify("No pending reminders")
+        return
+
+    events = []
+    names = []
+
+    for line in pending.split(","):
+        line = line.strip()
+        event_id, message = line.split(maxsplit=1)
+        events.append((event_id, message))
+        names.append(message)
+
+    name_to_id = {name: eid for eid, name in events}
+    if len(names) == 1:
+        selected = names[0].strip()
+    else:
+        selected = select_option(names)
+
+    if not selected:
+        return
+
+    event_id = name_to_id[selected]
+
+    if event_id == "1":
+        subprocess.run("/home/christian/Bin/Tagebuch.py", check=False)
+    if event_id == "3":
+        subprocess.run("/home/christian/Bin/Dankbarkeit.py", check=False)
+    if event_id == "5":
+        list_path = "/home/christian/Documents/Tageslisten/"
+        file_name = (
+                list_path
+                + "Tagesliste_"
+                + datetime.datetime.today().strftime("%d.%m.%Y")
+                + ".txt"
+                )
+        for filename in os.listdir(list_path):
+            if filename.startswith("Tagesliste"):
+                os.rename(os.path.join(list_path, filename), file_name)
+                # os.remove(os.path.join(list_path, filename))
+        subprocess.call(shlex.split("kitty -e nvim " + file_name))
+
+    subprocess.run([REMINDER_SCRIPT, "ack", event_id], check=False)
+    notify(f"Acknowledged: {selected}")
 
 
 def add_event():
-    inteval = 0
-    weekdays = ""
-    command = ["/home/christian/Bin/reminderScript.py", "add"]
+
     try:
-        command.append("--name")
-        command.append(get_input("Event Name: "))
-        command.append("--message")
-        command.append(get_input("Event Message: "))
-        mode = select_option(["Interval", "Weekdays"])
-        match mode:
-            case "Interval":
-                command.append("--interval")
-                command.append(str(int(get_input("Interval:"))))
-            case "Weekdays":
-                command.append("--weekdays")
-                command.append(
-                    normalize_weekdays(get_input("Weekdays (mon, tue, ..., sun): "))
-                )
-        command.append("--time")
-        time_str = get_input("Time (%H:%M): ")
+        name = get_input("Event Name")
+        message = get_input("Message")
+
+        weekdays = normalize_weekdays(get_input("Weekdays (mon, tue, ...)"))
+
+        time_str = get_input("Time (HH:MM)")
+
         datetime.datetime.strptime(time_str, "%H:%M")
-        command.append(time_str)
+
+        cmd = [
+                REMINDER_SCRIPT,
+                "add",
+                "--name",
+                name,
+                "--message",
+                message,
+                "--weekdays",
+                *weekdays.split(),
+                "--time",
+                time_str,
+                ]
+
+        notify(run_command(cmd))
+
     except ValueError as e:
-        notify("Value error " + e.args[0])
-        quit()
-    print(command)
-    notify(run_command(command))
-    return
-
-
-def edit_event():
-    notify("Edit event")
-    return
+        notify(str(e))
 
 
 def delete_event():
-    delete_command = ["/home/christian/Bin/reminderScript.py", "delete", "--id"]
+
     event_list = run_command(LIST_COMMAND)
+
+    if not event_list:
+        notify("No events found")
+        return
+
     events = []
+
     for line in event_list.splitlines():
-        lineArgs = line.split()
-        events.append((lineArgs[0], lineArgs[1]))
-    # Build mapping name -> id
-    name_to_id = {name: event_id for event_id, name in events}
+        parts = line.split()
+        events.append((parts[0], parts[1]))
 
-    # Send only names to rofi
-    selected_event = run_command(
-        ["rofi", "-dmenu", "-theme-str", ROFI_THEME],
-        input_text="\n".join(name_to_id.keys()),
-    ).strip()
+    names = [name for _, name in events]
 
-    # Get the id
-    selected_event_id = name_to_id.get(selected_event)
-    delete_command.append(str(selected_event_id))
-    print(delete_command)
-    response = run_command(delete_command)
-    notify(response)
-    return
+    selected = select_option(names)
+
+    if not selected:
+        return
+
+    event_id = next(eid for eid, name in events if name == selected)
+
+    run_command([REMINDER_SCRIPT, "delete", event_id])
+
+    notify(f"Deleted: {selected}")
 
 
 def main():
-    selected_action = get_action()
-    match selected_action:
-        case "Acknowledge":
-            acknowledge_event()
-            pass
-        case "Reset":
-            reset_event()
-            pass
-        case "Add":
-            add_event()
-            pass
-        case "Edit":
-            edit_event()
-            pass
-        case "Delete":
-            delete_event()
-            pass
-        case "":
-            quit()
-    return
-    # if not pending:
-    #     print("nothing pending")
-    #     return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "ack":
+        action = "Acknowledge"
+    else:
+        action = select_option(["Acknowledge", "Add", "Delete"])
+
+    if action == "Acknowledge":
+        acknowledge_event()
+
+    elif action == "Add":
+        add_event()
+
+    elif action == "Delete":
+        delete_event()
 
 
 if __name__ == "__main__":
