@@ -6,10 +6,7 @@ from pathlib import Path
 
 DB_FILE = Path("/home/christian/Opt/ReminderDataBase/remindersWithTime.db")
 
-WEEKDAY_MAP = {
-        "mon": 0, "tue": 1, "wed": 2, "thu": 3,
-        "fri": 4, "sat": 5, "sun": 6
-        }
+WEEKDAY_MAP = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
 def get_db_connection():
@@ -90,15 +87,15 @@ def add_reminder(name, message, weekdays, time_str=None, enabled=True):
                 return
 
     cur.execute(
-            "INSERT INTO events (name, message, enabled) VALUES (?, ?, ?)",
-            (name, message, int(enabled))
-            )
+        "INSERT INTO events (name, message, enabled) VALUES (?, ?, ?)",
+        (name, message, int(enabled)),
+    )
     event_id = cur.lastrowid
     for wd in weekday_indices:
         cur.execute(
-                "INSERT INTO event_schedule (event_id, weekday, time) VALUES (?, ?, ?)",
-                (event_id, wd, reminder_time.strftime("%H:%M") if reminder_time else None)
-                )
+            "INSERT INTO event_schedule (event_id, weekday, time) VALUES (?, ?, ?)",
+            (event_id, wd, reminder_time.strftime("%H:%M") if reminder_time else None),
+        )
     cur.execute("INSERT INTO event_state (event_id) VALUES (?)", (event_id,))
     conn.commit()
     conn.close()
@@ -108,8 +105,9 @@ def add_reminder(name, message, weekdays, time_str=None, enabled=True):
 def next_trigger_day(last_triggered, weekday) -> datetime:
     next_trigger_day = datetime.fromisoformat(last_triggered)
     while next_trigger_day.weekday() != weekday:
-        next_trigger_day = next_trigger_day + timedelta(days=1)   
+        next_trigger_day = next_trigger_day + timedelta(days=1)
     return next_trigger_day
+
 
 def check_reminders(verbose=False):
     conn = get_db_connection()
@@ -148,9 +146,9 @@ def check_reminders(verbose=False):
             continue
 
         cur.execute(
-                "UPDATE event_state SET pending = 1, last_triggered = ? WHERE event_id = ?",
-                (today_str, r["id"])
-                )
+            "UPDATE event_state SET pending = 1, last_triggered = ? WHERE event_id = ?",
+            (today_str, r["id"]),
+        )
 
         triggered.append(r)
 
@@ -162,11 +160,11 @@ def check_reminders(verbose=False):
     return triggered
 
 
-def query_pending(polybar_format= False):
+def query_pending(polybar_format=False):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    query_string_with_time_check="""
+    query_string_with_time_check = """
     WITH event_schedules AS (
         SELECT id
         FROM event_schedule
@@ -187,51 +185,100 @@ def query_pending(polybar_format= False):
     SELECT id, name, message, schedule_time
     FROM aggregated_events as ae
     """
-    #WHERE ae.schedule_time IS NULL OR TIME('now') > TIME(ae.schedule_time);
+    # WHERE ae.schedule_time IS NULL OR TIME('now') > TIME(ae.schedule_time);
 
     cur.execute(query_string_with_time_check)
     rows = cur.fetchall()
     conn.close()
     messages = []
     for r in rows:
-        last_ack_date = get_last_ack(str(r['id']))
-        dayDiff = (datetime.today() - last_ack_date).days
-        if str(r['id']) == '1':
-            delta =datetime.today().date() - get_last_journal_ack().date()
-            if datetime.now().strftime("%H") < '18' and delta.days == 1:
-                continue
-        if(polybar_format):
-            messages.append(f"{r['id']} {r['message']}")
-        else:
-            messages.append(f"{r['message']} ({dayDiff})")
-    print(', '.join(messages))
+        event_string = get_display_string(r, polybar_format)
+        if event_string is not None:
+            messages.append(event_string)
+        # last_ack_date = get_last_ack(str(r["id"]))
+        # dayDiffStr = get_day_diff(last_ack_date, str(r["id"]))
+        # if str(r["id"]) == "1":
+        #     delta = datetime.today().date() - get_last_journal_ack().date()
+        #     if datetime.now().strftime("%H") < "18" and delta.days == 1:
+        #         continue
+        # if polybar_format:
+        #     messages.append(f"{r['id']} {r['message']}")
+        # else:
+        #     messages.append(f"{r['message']}{dayDiffStr}")
+    print(", ".join(messages))
+
+
+def get_display_string(r, polybar_format):
+    last_ack_date = get_last_ack(str(r["id"]))
+    dayDiffStr = get_day_diff(last_ack_date, str(r["id"]))
+    if str(r["id"]) == "1":
+        delta = datetime.today().date() - get_last_journal_ack().date()
+        if datetime.now().strftime("%H") < "18" and delta.days == 1:
+            return None
+    if polybar_format:
+        return f"{r['message']}{dayDiffStr}"
+        # return f"{r['id']} {r['message']}{dayDiffStr}"
+    return f"{r['id']} {r['message']}"
+
+
+def count_sunwednesdays(last_date):
+    today = datetime.today()
+    event_count = 0
+    current = last_date
+    while current <= today:
+        if current.weekday() == 6 or current.weekday() == 2:
+            event_count += 1
+        current += timedelta(days=1)
+    return event_count
+
+
+def get_day_diff(last_ack_date, event_id):
+    dayDiff = (datetime.today() - last_ack_date).days
+    if dayDiff < 2:
+        return ""
+    if event_id == "1":
+        return " (" + str(dayDiff - 1) + ")"
+    if event_id == "3":
+        return " (" + str(count_sunwednesdays(last_ack_date)) + ")"
+    return " (" + str(dayDiff) + ")"
 
 
 def get_last_ack(event_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    last_acked = cur.execute("SELECT acknowledged_date FROM event_state WHERE event_id = ?", event_id)
+    last_acked = cur.execute(
+        "SELECT acknowledged_date FROM event_state WHERE event_id = ?", event_id
+    )
     last_acked_string = last_acked.fetchone()[0]
-    return datetime.strptime(last_acked_string, "%Y-%m-%d") 
+    return datetime.strptime(last_acked_string, "%Y-%m-%d")
 
 
 def get_last_journal_ack():
     conn = get_db_connection()
     cur = conn.cursor()
-    last_acked = cur.execute("SELECT acknowledged_date FROM event_state WHERE event_id = 1")
+    last_acked = cur.execute(
+        "SELECT acknowledged_date FROM event_state WHERE event_id = 1"
+    )
     last_acked_string = last_acked.fetchone()[0]
-    return datetime.strptime(last_acked_string, "%Y-%m-%d") 
+    return datetime.strptime(last_acked_string, "%Y-%m-%d")
 
 
 def acknowledge_journal():
     conn = get_db_connection()
     cur = conn.cursor()
-    last_acked = cur.execute("SELECT acknowledged_date FROM event_state WHERE event_id = 1")
+    last_acked = cur.execute(
+        "SELECT acknowledged_date FROM event_state WHERE event_id = 1"
+    )
     last_acked_string = last_acked.fetchone()[0]
-    next_ack_date = (datetime.strptime(last_acked_string, "%Y-%m-%d") + timedelta(days=1)).date()
-    cur.execute( "UPDATE event_state SET acknowledged_date = ? WHERE event_id = ?", (next_ack_date.isoformat(), '1'))
-    if (next_ack_date >= datetime.today().date()):
-        cur.execute( "UPDATE event_state SET pending = 0 WHERE event_id = ?", ('1'))
+    next_ack_date = (
+        datetime.strptime(last_acked_string, "%Y-%m-%d") + timedelta(days=1)
+    ).date()
+    cur.execute(
+        "UPDATE event_state SET acknowledged_date = ? WHERE event_id = ?",
+        (next_ack_date.isoformat(), "1"),
+    )
+    if next_ack_date >= datetime.today().date():
+        cur.execute("UPDATE event_state SET pending = 0 WHERE event_id = ?", ("1"))
 
     conn.commit()
     conn.close()
@@ -245,9 +292,9 @@ def acknowledge(reminder_id):
     cur = conn.cursor()
 
     cur.execute(
-            "UPDATE event_state SET pending = 0, acknowledged_date = ? WHERE event_id = ?",
-            (date.today().isoformat(), reminder_id)
-            )
+        "UPDATE event_state SET pending = 0, acknowledged_date = ? WHERE event_id = ?",
+        (date.today().isoformat(), reminder_id),
+    )
 
     conn.commit()
     conn.close()
@@ -275,7 +322,7 @@ def list_reminders():
     rows = cur.fetchall()
     conn.close()
     for r in rows:
-        print(r['id'], r['name'], r['weekday'], r['time'])
+        print(r["id"], r["name"], r["weekday"], r["time"])
 
 
 def main():
@@ -293,7 +340,9 @@ def main():
 
     sub.add_parser("check")
     p_query = sub.add_parser("query")
-    p_query.add_argument("--polybar", action="store_true", help="Enable polybar output mode")
+    p_query.add_argument(
+        "--polybar", action="store_true", help="Enable polybar output mode"
+    )
 
     p_ack = sub.add_parser("ack")
     p_ack.add_argument("id", type=int)

@@ -11,6 +11,7 @@ import threading
 import termios
 import tty
 import i3ipc
+import curses
 
 # import curses
 from datetime import datetime, timedelta
@@ -21,26 +22,26 @@ SPINNERBAR = ["\\", "-", "/", "|", "\\", "-", "/", "|"]
 SPINNERCLOCK = ["🕛", "🕚", "🕘", "🕖", "🕔", "🕓", "🕒", "🕑", "🕐"]
 SPINNERFRAME = ["⠏", "⠇", "⠧", "⠦", "⠴", "⠼", "⠸", "⠹", "⠙", "⠋"]
 SPINNERCIRCLE = [
-    "( ●    )",
-    "(  ●   )",
-    "(   ●  )",
-    "(    ● )",
-    "(     ●)",
-    "(    ● )",
-    "(   ●  )",
-    "(  ●   )",
-    "( ●    )",
-    "(●     )",
-]
+        "( ●    )",
+        "(  ●   )",
+        "(   ●  )",
+        "(    ● )",
+        "(     ●)",
+        "(    ● )",
+        "(   ●  )",
+        "(  ●   )",
+        "( ●    )",
+        "(●     )",
+        ]
 SPINNERFILLINGBAR = [
-    "▰▰▰▰▰▰▰",
-    "▰▰▰▰▰▰▱",
-    "▰▰▰▰▰▱▱",
-    "▰▰▰▰▱▱▱",
-    "▰▰▰▱▱▱▱",
-    "▰▰▱▱▱▱▱",
-    "▰▱▱▱▱▱▱",
-]
+        "▰▰▰▰▰▰▰",
+        "▰▰▰▰▰▰▱",
+        "▰▰▰▰▰▱▱",
+        "▰▰▰▰▱▱▱",
+        "▰▰▰▱▱▱▱",
+        "▰▰▱▱▱▱▱",
+        "▰▱▱▱▱▱▱",
+        ]
 SPINNERS = [SPINNERCLOCK, SPINNERBAR, SPINNERFRAME, SPINNERCIRCLE, SPINNERFILLINGBAR]
 BARSYMBOLSFULL = ["■", "▓"]
 BARSYMBOLSEMPTY = ["▢", "▒"]
@@ -58,20 +59,20 @@ keyboard_controller = keyboard.Controller()
 
 def handle_args(args):
     global \
-        seconds_total, \
-        seconds, \
-        TICKTIME, \
-        ack_enabled, \
-        ack_interval, \
-        SPINNER, \
-        SPINNERS
+            seconds_total, \
+            seconds, \
+            TICKTIME, \
+            ack_enabled, \
+            ack_interval, \
+            SPINNER, \
+            SPINNERS
     if args.silent:
         subprocess.Popen(
-            [sys.executable] + sys.argv[:-1],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+                [sys.executable] + sys.argv[:-1],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                )
         exit()
     else:
         hide_cursor()
@@ -84,8 +85,8 @@ def handle_args(args):
 
     if args.pomodoro:
         run_pomodoro(
-            args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1
-        )
+                args.pomodoro_length, args.short_break, args.long_break, args.cycles + 1
+                )
         return
 
     if args.time:
@@ -148,6 +149,7 @@ def restore_terminal_input():
 # --- Cleanup handler ---
 def exit_handler():
     write_time_to_file("")
+    subprocess.call(["polybar-msg", "action", f"#timerIPC.send."], stdout=subprocess.DEVNULL)
     restore_terminal_input()
     show_cursor()
     clear_current_line()
@@ -189,9 +191,9 @@ def write_message_to_file(message):
     with open("/home/christian/Bin/timerMessage", "w") as f:
         f.write(message + "\n")
     subprocess.Popen(
-        "pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message),
-        shell=True,
-    )
+            "pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message),
+            shell=True,
+            )
 
 
 def notify(message, reading="", sound=True):
@@ -202,19 +204,20 @@ def notify(message, reading="", sound=True):
         subprocess.Popen(["/home/christian/Bin/startSilent.sh", "tts.sh", reading])
     elif sound:
         subprocess.Popen(
-            "play /home/christian/Music/Bellsound.aiff -q",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+                "play /home/christian/Music/Bellsound.aiff -q",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                )
 
 
 def repeat_alert_until_ack(message, reading="", interval=2.0):
     global ack_waiting
+    interval = 1.0
     ack_waiting = True
     ack_event.clear()
     while not ack_event.is_set():
-        notify(message, reading)
+        subprocess.call(["/home/christian/Bin/timerMessage.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         ack_event.wait(interval)
     exit_handler()
     ack_waiting = False
@@ -258,6 +261,7 @@ def calculate_bar(seconds_passed, bar_length):
 
 def countdown_seconds(message):
     global seconds, TICKTIME, ack_enabled, ack_interval
+    write_message_to_file(message)
     while seconds > 0:
         if not paused:
             display_time(seconds)
@@ -293,15 +297,15 @@ def display_content(content):
     width_terminal_prompt_l = visible_length(terminal_prompt_left)
     width_content_display = len(content)
     width_padding = (
-        width
-        - width_content_display
-        - width_terminal_prompt_l
-        - width_terminal_prompt_r
-        + 16
-    )
+            width
+            - width_content_display
+            - width_terminal_prompt_l
+            - width_terminal_prompt_r
+            + 16
+            )
     content_prompt = (
-        terminal_prompt_left + content + " " * width_padding + terminal_prompt_right
-    )
+            terminal_prompt_left + content + " " * width_padding + terminal_prompt_right
+            )
     sys.stdout.write(f"\r{content_prompt}")
     sys.stdout.flush()
 
@@ -325,23 +329,27 @@ def display_time(seconds):
     width_time_display = len(time_display)
     width_spinner = len(spinner_char)
     width_padding = (
-        width
-        - width_time_display
-        - width_spinner
-        - width_terminal_prompt_l
-        - width_terminal_prompt_r
-        + 16
-    )
-    time_display_prompt = (
-        terminal_prompt_left
-        + time_display
-        + " " * width_padding
-        + spinner_char
-        + terminal_prompt_right
-    )
+            width
+            - width_time_display
+            - width_spinner
+            - width_terminal_prompt_l
+            - width_terminal_prompt_r
+            + 16
+            )
+    cli_time_display = (
+            terminal_prompt_left
+            + time_display
+            + " " * width_padding
+            + spinner_char
+            + terminal_prompt_right
+            )
+    polybar_time_display = spinner_char + " " + time_display
     width -= len(spinner_char)
-    write_time_to_file(spinner_char + " " + time_display + " " + time_bar)
-    sys.stdout.write(f"\r{time_display_prompt}")
+
+    # write_time_to_file(spinner_char + " " + time_display + " " + time_bar)
+
+    subprocess.call(["polybar-msg", "action", f"#timerIPC.send.{polybar_time_display}"], stdout=subprocess.DEVNULL)
+    sys.stdout.write(f"\r{cli_time_display}")
     sys.stdout.flush()
 
 
@@ -350,8 +358,8 @@ def clear_current_line():
         cols, rows = os.get_terminal_size()
         terminal_prompt = os.environ["LEFT_PROMPT_LINE"]
         sys.stdout.write(
-            "\r" + terminal_prompt + " " * (cols - len(terminal_prompt)) + "\r"
-        )
+                "\r" + terminal_prompt + " " * (cols - len(terminal_prompt)) + "\r"
+                )
         sys.stdout.flush()
     except KeyError:
         return
@@ -365,17 +373,16 @@ def on_press(key):
         return
 
     if not is_terminal_focused():
-        return
-
+        return True
     try:
         pressed_char = key.char
     except AttributeError:
-        return
+        return True
 
     if pressed_char == "q":
         exit_handler()
         os.kill(os.getpid(), signal.SIGINT)
-        return
+        return 
 
     if pressed_char == "+":
         seconds += 10
@@ -392,12 +399,56 @@ def on_press(key):
         return
 
     if pressed_char == "p":
+        # Add your code for the 'p' key here
         paused = not paused
         time_display = str(timedelta(seconds=int(seconds)))
         display_content(f"rTimer paused at {time_display}")
-        # sys.stdout.write(f"\rTimer paused at {time_display}")
-        # sys.stdout.flush()
         return
+
+    return True
+
+
+# def ondisplay_content(f"rTimer paused at {time_display}")_press(key):
+#     global ack_enabled, seconds_total, seconds, paused, ack_waiting
+#
+#     if key == keyboard.Key.esc:
+#         ack_event.set()
+#         return
+#
+#     if not is_terminal_focused():
+#         return
+#
+#     try:
+#         pressed_char = key.char
+#     except AttributeError:
+#         return
+#
+#     if pressed_char == "q":
+#         exit_handler()
+#         os.kill(os.getpid(), signal.SIGINT)
+#         return
+#
+#     if pressed_char == "+":
+#         seconds += 10
+#         seconds_total += 10
+#         return
+#
+#     if pressed_char == "-":
+#         seconds = max(0, seconds - 10)
+#         seconds_total = max(0, seconds_total - 10)
+#         return
+#
+#     if pressed_char == "l":
+#         clear_current_line()
+#         return
+#
+#     if pressed_char == "p":
+#         paused = not paused
+#         time_display = str(timedelta(seconds=int(seconds)))
+#         display_content(f"rTimer paused at {time_display}")
+#         # sys.stdout.write(f"\rTimer paused at {time_display}")
+#         # sys.stdout.flush()
+#         return
 
 
 # --- Pomodoro ---
@@ -446,41 +497,44 @@ def main():
     parser.add_argument("-s", "--seconds", type=int, help="Number of seconds")
     parser.add_argument("-m", "--minutes", type=int, help="Number of minutes")
     parser.add_argument(
-        "-r", "--run", action="store_true", help="Count up indefinitely"
-    )
+            "-r", "--run", action="store_true", help="Count up indefinitely"
+            )
     parser.add_argument("-t", "--time", type=str, help="Counts until HH:MM[:SS]")
     parser.add_argument(
-        "--message", type=str, help="Message displayed when timer finishes"
-    )
+            "--message", type=str, help="Message displayed when timer finishes"
+            )
     parser.add_argument("--silent", action="store_true", help="Run timer in background")
+    parser.add_argument(
+            "--polybar", action="store_true", help="Run timer in polybar output mode"
+            )
     parser.add_argument("--pomodoro", action="store_true", help="Enable Pomodoro mode")
     parser.add_argument(
-        "--pomodoro-length", type=int, default=20, help="Pomodoro length (min)"
-    )
+            "--pomodoro-length", type=int, default=20, help="Pomodoro length (min)"
+            )
     parser.add_argument(
-        "--short-break", type=int, default=5, help="Short break length (min)"
-    )
+            "--short-break", type=int, default=5, help="Short break length (min)"
+            )
     parser.add_argument(
-        "--long-break", type=int, default=15, help="Long break length (min)"
-    )
+            "--long-break", type=int, default=15, help="Long break length (min)"
+            )
     parser.add_argument(
-        "--cycles", type=int, default=4, help="Pomodoros before long break"
-    )
+            "--cycles", type=int, default=4, help="Pomodoros before long break"
+            )
     parser.add_argument(
-        "--spinner",
-        type=int,
-        default=0,
-        help="Index of the spinner used in animation, defaults to bar spinner",
-    )
+            "--spinner",
+            type=int,
+            default=0,
+            help="Index of the spinner used in animation, defaults to bar spinner",
+            )
     parser.add_argument(
-        "--no-ack", action="store_true", help="Do not repeat alert until acknowledged"
-    )
+            "--no-ack", action="store_true", help="Do not repeat alert until acknowledged"
+            )
     parser.add_argument(
-        "--ack-interval",
-        type=float,
-        default=8.0,
-        help="Seconds between repeated alerts while waiting for acknowledgment",
-    )
+            "--ack-interval",
+            type=float,
+            default=8.0,
+            help="Seconds between repeated alerts while waiting for acknowledgment",
+            )
 
     if len(sys.argv) <= 1:
         parser.print_help()
