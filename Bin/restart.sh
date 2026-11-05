@@ -1,6 +1,7 @@
 #!/bin/bash
 
 LOG_DIR="$HOME/ScriptOutputs"
+BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$1" ]; then
   echo "Usage: ./restart.sh <script_name> [args...]"
@@ -20,5 +21,5 @@ if [ -n "$PIDS" ]; then
   echo "killed target"
   sleep 1
 fi
-
-exec "$BIN/startSilent.sh" -r "$@" &
+echo "Starting target: $@"
+"$BIN_DIR/startSilent.sh" -r "$@" &

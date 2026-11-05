@@ -1,6 +1,6 @@
 #!/bin/bash
 
-LOG_DIR="$HOME/ScriptOutputs"
+LOG_DIR="/home/christian/ScriptOutputs"
 TIME="$(date '+%H:%M:%S')"
 DATE="$(date '+%d.%m.%Y')"
 TIMESTAMP="📅: $DATE, 🕒: $TIME"
