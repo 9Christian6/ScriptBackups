@@ -110,13 +110,17 @@ class BoxOutputRenderer:
         self.escape_buffer = ""
         self.active_sgr = ""
         self.lines: list[list[tuple[str, str]]] = [[]]
-        self.max_buffered_lines = 4  # three finalized lines plus the current line
+        self.max_buffered_lines = 4  # up to four visible rows, plus a hidden empty current line
         self.cursor_row = 0
         self.cursor_col = 0
         self.dirty = False
         self.rendered_rows = 0
         self.rendered_cursor_row = 0
         self.dropped_since_render = 0
+        self.saved_cursor_row = 0
+        self.saved_cursor_col = 0
+        self.saved_active_sgr = ""
+        self.show_empty_current_line = False
 
     def feed(self, data: bytes) -> bytes:
         """Process a PTY chunk and return boxed output bytes."""
@@ -141,7 +145,7 @@ class BoxOutputRenderer:
             if char == '\x1b':
                 self.escape_buffer = char
             elif char == '\r':
-                self.cursor_col = 0
+                self._set_cursor_col(0)
             elif char == '\n':
                 self._linefeed()
             elif char in ('\b', '\x7f'):
@@ -180,24 +184,19 @@ class BoxOutputRenderer:
 
         self.cursor_col += 1
         self.dirty = True
+        self.show_empty_current_line = False
 
     def _handle_backspace(self) -> None:
         if self.cursor_col > 0:
             self.cursor_col -= 1
+            self.dirty = True
 
     def _linefeed(self) -> None:
         self.cursor_col = 0
         self.cursor_row += 1
-        while len(self.lines) <= self.cursor_row:
-            self.lines.append([])
-
-        if len(self.lines) > self.max_buffered_lines:
-            dropped = len(self.lines) - self.max_buffered_lines
-            del self.lines[:dropped]
-            self.cursor_row = max(0, self.cursor_row - dropped)
-            self.dropped_since_render += dropped
-
+        self.cursor_row = self._ensure_row(self.cursor_row)
         self.dirty = True
+        self.show_empty_current_line = False
 
     def _escape_complete(self, sequence: str) -> bool:
         if sequence.startswith('\x1b]'):
@@ -207,12 +206,22 @@ class BoxOutputRenderer:
                 return False
             final = sequence[-1]
             return '@' <= final <= '~'
+        if sequence in ('\x1b7', '\x1b8'):
+            return True
         if len(sequence) == 1:
             return False
         final = sequence[-1]
         return '@' <= final <= '~'
 
     def _apply_escape_sequence(self, sequence: str) -> None:
+        if sequence == '\x1b7':
+            self._save_cursor()
+            return
+
+        if sequence == '\x1b8':
+            self._restore_cursor()
+            return
+
         sgr_match = SGR_TEXT_RE.fullmatch(sequence)
         if sgr_match:
             params = sgr_match.group(1)
@@ -224,22 +233,38 @@ class BoxOutputRenderer:
 
         params = sequence[2:-1]
         command = sequence[-1]
-        value = 1
-        if params and params.isdigit():
-            value = int(params)
+        private_mode = params.startswith('?')
+        raw_parts = params[1:] if private_mode else params
+        parts = raw_parts.split(';') if raw_parts else []
 
         if command == 'K':
-            self._erase_in_line(value if params else 0)
+            self._erase_in_line(self._param_or_default(parts, 0, 0))
+        elif command == 'J':
+            self._erase_in_display(self._param_or_default(parts, 0, 0))
         elif command == 'G':
-            self.cursor_col = max(0, min(self.inner_width, value - 1))
+            self._set_cursor_col(self._param_or_default(parts, 0, 1) - 1)
         elif command == 'C':
-            self.cursor_col = max(0, min(self.inner_width, self.cursor_col + value))
+            self._set_cursor_col(self.cursor_col + self._param_or_default(parts, 0, 1))
         elif command == 'D':
-            self.cursor_col = max(0, self.cursor_col - value)
+            self._set_cursor_col(self.cursor_col - self._param_or_default(parts, 0, 1))
         elif command == 'A':
-            self.cursor_row = max(0, self.cursor_row - value)
+            self._move_up(self._param_or_default(parts, 0, 1))
         elif command == 'B':
-            self._move_down(value)
+            self._move_down(self._param_or_default(parts, 0, 1))
+        elif command == 'E':
+            self._move_down(self._param_or_default(parts, 0, 1))
+            self._set_cursor_col(0)
+        elif command == 'F':
+            self._move_up(self._param_or_default(parts, 0, 1))
+            self._set_cursor_col(0)
+        elif command in ('H', 'f'):
+            row = self._param_or_default(parts, 0, 1) - 1
+            col = self._param_or_default(parts, 1, 1) - 1
+            self._set_cursor_position(row, col)
+        elif command == 's' and not private_mode:
+            self._save_cursor()
+        elif command == 'u' and not private_mode:
+            self._restore_cursor()
 
     def _erase_in_line(self, mode: int) -> None:
         cells = self.lines[self.cursor_row]
@@ -247,6 +272,7 @@ class BoxOutputRenderer:
             if self.cursor_col < len(cells):
                 del cells[self.cursor_col:]
             self.dirty = True
+            self.show_empty_current_line = True
             return
 
         if mode == 1:
@@ -256,24 +282,108 @@ class BoxOutputRenderer:
             for index in range(min(self.cursor_col + 1, len(cells))):
                 cells[index] = (' ', '')
             self.dirty = True
+            self.show_empty_current_line = True
             return
 
         if mode == 2:
             cells.clear()
             self.dirty = True
+            self.show_empty_current_line = True
 
-    def _move_down(self, value: int) -> None:
-        target_row = self.cursor_row + value
-        while len(self.lines) <= target_row:
+    def _erase_in_display(self, mode: int) -> None:
+        if mode == 0:
+            self._erase_in_line(0)
+            for row in range(self.cursor_row + 1, len(self.lines)):
+                self.lines[row].clear()
+            self.dirty = True
+            return
+
+        if mode == 1:
+            self._erase_in_line(1)
+            for row in range(self.cursor_row):
+                self.lines[row].clear()
+            self.dirty = True
+            return
+
+        if mode in (2, 3):
+            for row in self.lines:
+                row.clear()
+            self.cursor_row = self._ensure_row(self.cursor_row)
+            self.dirty = True
+            self.show_empty_current_line = True
+
+    def _param_or_default(self, parts: list[str], index: int, default: int) -> int:
+        if index >= len(parts) or parts[index] == '':
+            return default
+        if parts[index].isdigit():
+            return int(parts[index])
+        return default
+
+    def _set_cursor_col(self, column: int) -> None:
+        clamped = max(0, min(self.inner_width, column))
+        if clamped != self.cursor_col:
+            self.cursor_col = clamped
+            self.dirty = True
+
+    def _set_cursor_position(self, row: int, col: int) -> None:
+        target_row = max(0, row)
+        target_row = self._ensure_row(target_row)
+        moved = target_row != self.cursor_row
+        self.cursor_row = target_row
+
+        clamped_col = max(0, min(self.inner_width, col))
+        if clamped_col != self.cursor_col:
+            moved = True
+        self.cursor_col = clamped_col
+
+        if moved:
+            self.dirty = True
+
+    def _save_cursor(self) -> None:
+        self.saved_cursor_row = self.cursor_row
+        self.saved_cursor_col = self.cursor_col
+        self.saved_active_sgr = self.active_sgr
+
+    def _restore_cursor(self) -> None:
+        restored_row = self._ensure_row(self.saved_cursor_row)
+        moved = (
+            restored_row != self.cursor_row or
+            self.saved_cursor_col != self.cursor_col or
+            self.saved_active_sgr != self.active_sgr
+        )
+        self.cursor_row = restored_row
+        self.cursor_col = max(0, min(self.inner_width, self.saved_cursor_col))
+        self.active_sgr = self.saved_active_sgr
+        if moved:
+            self.dirty = True
+
+    def _ensure_row(self, row: int) -> int:
+        while len(self.lines) <= row:
             self.lines.append([])
 
-        if len(self.lines) > self.max_buffered_lines:
-            dropped = len(self.lines) - self.max_buffered_lines
-            del self.lines[:dropped]
-            target_row = max(0, target_row - dropped)
-            self.dropped_since_render += dropped
+        allowed_lines = self.max_buffered_lines
+        if (
+            row == len(self.lines) - 1 and
+            not self.lines[row] and
+            not self.show_empty_current_line
+        ):
+            allowed_lines += 1
 
-        self.cursor_row = target_row
+        if len(self.lines) > allowed_lines:
+            dropped = len(self.lines) - allowed_lines
+            del self.lines[:dropped]
+            self.cursor_row = max(0, self.cursor_row - dropped)
+            self.saved_cursor_row = max(0, self.saved_cursor_row - dropped)
+            self.dropped_since_render += dropped
+            row = max(0, row - dropped)
+
+        return row
+
+    def _move_down(self, value: int) -> None:
+        self._set_cursor_position(self.cursor_row + value, self.cursor_col)
+
+    def _move_up(self, value: int) -> None:
+        self._set_cursor_position(self.cursor_row - value, self.cursor_col)
 
     def _line_content(self, cells: list[tuple[str, str]]) -> str:
         parts: list[str] = []
@@ -302,7 +412,11 @@ class BoxOutputRenderer:
         if not self.lines:
             return []
 
-        if self.cursor_row == len(self.lines) - 1 and not self.lines[-1]:
+        if (
+            self.cursor_row == len(self.lines) - 1 and
+            not self.lines[-1] and
+            not self.show_empty_current_line
+        ):
             return self.lines[:-1]
 
         return self.lines
@@ -317,27 +431,37 @@ class BoxOutputRenderer:
             return ""
 
         hidden_rows = max(0, self.cursor_row - (len(display_lines) - 1))
+        current_rows = len(display_lines) + hidden_rows
+        stale_rows = max(0, self.rendered_rows - current_rows)
         parts: list[str] = []
 
         if self.rendered_rows:
             parts.append('\r')
-            move_up = max(0, self.rendered_cursor_row - self.dropped_since_render)
+            move_up = self.rendered_cursor_row
             if move_up:
                 parts.append(f"\033[{move_up}A")
 
         for index, cells in enumerate(display_lines):
             parts.append(self._boxed_line(cells))
-            if index < len(display_lines) - 1:
+            if index < len(display_lines) - 1 or hidden_rows or stale_rows:
                 parts.append('\r\n')
 
-        for _ in range(hidden_rows):
-            parts.append('\r\n')
+        for index in range(hidden_rows):
+            if index < hidden_rows - 1 or stale_rows:
+                parts.append('\r\n')
+
+        for index in range(stale_rows):
+            parts.append(self._boxed_line([]))
+            if index < stale_rows - 1:
+                parts.append('\r\n')
 
         parts.append('\r')
+        if stale_rows:
+            parts.append(f"\033[{stale_rows}A")
         parts.append(f"\033[{min(self.inner_width, self.cursor_col) + 3}G")
 
         self.dirty = False
-        self.rendered_rows = len(display_lines) + hidden_rows
+        self.rendered_rows = current_rows
         self.rendered_cursor_row = self.cursor_row
         self.dropped_since_render = 0
         return ''.join(parts)
