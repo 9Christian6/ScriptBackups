@@ -63,7 +63,8 @@ SPECIAL_CLASSES = {
     "Brave-browser": find_browser_key_from_title,
     "vivaldi-stable": find_browser_key_from_title,
     "alacritty": find_terminal_key_from_title,
-    "kitty": find_terminal_key_from_title
+    "kitty": find_terminal_key_from_title,
+    "christian@christians": find_terminal_key_from_title
 }
 
 
@@ -78,16 +79,20 @@ def get_scratch_windows():
 
     found = []
 
+    def collect_windows(node):
+        wp = node.get("window_properties", {})
+        if "class" in wp:
+            found.append({
+                "class": wp.get("class"),
+                "title": wp.get("title", "")
+            })
+        for key in ("nodes", "floating_nodes"):
+            for child in node.get(key, []):
+                collect_windows(child)
+
     def walk(node):
         if node.get("name") == "__i3_scratch":
-            for f in node.get("floating_nodes", []):
-                for inner in f.get("nodes", []):
-                    wp = inner.get("window_properties", {})
-                    if "class" in wp:
-                        found.append({
-                            "class": wp.get("class"),
-                            "title": wp.get("title", "")
-                        })
+            collect_windows(node)
         for key in ("nodes", "floating_nodes"):
             for child in node.get(key, []):
                 walk(child)
@@ -113,12 +118,14 @@ def load_config_keys_and_values():
     return mapping
 
 def icon_for_class(config, app_class, title):
-    appIcon = ''
     if app_class in SPECIAL_CLASSES:
-        appIcon = SPECIAL_CLASSES[app_class](title)
+        special_icon = SPECIAL_CLASSES[app_class](title)
+        if special_icon != None:
+            return special_icon
+        return config[app_class]
     elif app_class in config:
-        appIcon = config[app_class]
-    return appIcon
+        return config[app_class]
+    return '(' + config['fallback_icon'] + ', ' + app_class + ')'
 
 def main():
     windows = get_scratch_windows()
@@ -130,7 +137,7 @@ def main():
         title = win["title"].lower()
         results.append(icon_for_class(config, app_class, title))
     results = list(dict.fromkeys(results))
-    print(" , ".join(results))
+    print(" , ".join(results).strip())
 
 
 if __name__ == "__main__":

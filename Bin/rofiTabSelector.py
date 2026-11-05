@@ -143,14 +143,19 @@ def focus_in_i3(tab_id, _title, tabs):
     save_cache(cache)
 
     x_window_id = cache.get(target_window_id)
-    if x_window_id and focus_window(i3, brave_windows, x_window_id):
-        subprocess.run(['brotab', 'activate', tab_id], check=True)
+    if x_window_id:
+        # Activate first and keep Brave's own focus state in sync. Activating
+        # without --focused after i3 focus can leave the window ignoring input
+        # until it receives another focus event.
+        subprocess.run(['brotab', 'activate', '--focused', tab_id], check=True)
+        focus_window(i3, brave_windows, x_window_id)
         return
 
     print(f"Could not map {tab_id} to a Brave i3 container instantly.", file=sys.stderr)
 
 def main():
     tabs = get_tabs()
+    print(tabs)
     if not tabs:
         sys.exit(0)
     tab_id, title = select_tab(tabs)
