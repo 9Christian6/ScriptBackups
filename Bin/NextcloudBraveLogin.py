@@ -18,6 +18,9 @@ BASE_URL = "http://192.168.178.75:8080"
 DASHBOARD_URL = f"{BASE_URL}/apps/dashboard/"
 CALENDAR_URL = f"{BASE_URL}/apps/calendar/timeGridWeek/now"
 PHOTOS_URL = f"{BASE_URL}/apps/photos/"
+TASKS_URL = f"{BASE_URL}/apps/tasks/"
+HIZMAIL_URL = "https://webmail.hiz-saarland.de/?_task=mail&_mbox=INBOX"
+PROTONMAIL_URL = "https://mail.proton.me/u/2/inbox?welcome=true"
 USERNAME = "christian"
 PASSWORD_FILE = Path("/home/christian/Opt/PasswordQuickAccess.enc")
 DEBUG_PORT = 9223
@@ -65,15 +68,31 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Open Nextcloud in Brave and log in.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-            "--calendar",
-            action="store_true",
-            help="Open Nextcloud Calendar after login.",
-            )
+        "--calendar",
+        action="store_true",
+        help="Open Nextcloud Calendar after login.",
+    )
     group.add_argument(
-            "--photos",
-            action="store_true",
-            help="Open Nextcloud Photos after login.",
-            )
+        "--photos",
+        action="store_true",
+        help="Open Nextcloud Photos after login.",
+    )
+    group.add_argument(
+        "--tasks",
+        action="store_true",
+        help="Open Nextcloud Tasks after login.",
+    )
+    group.add_argument(
+        "--hizmail",
+        action="store_true",
+        help="Open HIZ mail client after login",
+    )
+    group.add_argument(
+        "--protonmail",
+        action="store_true",
+        help="Open proton mail client after login",
+    )
+
     return parser.parse_args()
 
 
@@ -82,6 +101,12 @@ def get_target_url(args: argparse.Namespace) -> str:
         return CALENDAR_URL
     if args.photos:
         return PHOTOS_URL
+    if args.tasks:
+        return TASKS_URL
+    if args.hizmail:
+        return HIZMAIL_URL
+    if args.protonmail:
+        return PROTONMAIL_URL
     return DASHBOARD_URL
 
 
@@ -99,46 +124,45 @@ def main() -> None:
     # do not auto-delete it because Brave should stay open after this script exits.
     profile_dir = tempfile.mkdtemp(prefix="brave-nextcloud-login-")
     brave_process = subprocess.Popen(
-            [
-                brave_bin,
-                f"--remote-debugging-port={DEBUG_PORT}",
-                #f"--user-data-dir={profile_dir}",
-                "--new-window",
-                f"--app={target_url}",
-                ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            )
+        [
+            brave_bin,
+            f"--remote-debugging-port={DEBUG_PORT}",
+            "--new-window",
+            f"--app={target_url}",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-    if not wait_for_port("127.0.0.1", DEBUG_PORT, timeout_seconds=10):
-        raise RuntimeError("Brave remote debugging port did not become available.")
+    # if not wait_for_port("127.0.0.1", DEBUG_PORT, timeout_seconds=10):
+    #     raise RuntimeError("Brave remote debugging port did not become available.")
 
-    with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{DEBUG_PORT}")
-        context = browser.contexts[0]
-        page = context.pages[0] if context.pages else context.new_page()
+    # with sync_playwright() as p:
+    #     browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{DEBUG_PORT}")
+    #     context = browser.contexts[0]
+    #     page = context.pages[0] if context.pages else context.new_page()
 
-        try:
-            page.goto(target_url, wait_until="domcontentloaded")
-            page.wait_for_selector(", ".join(USERNAME_SELECTORS), timeout=15_000)
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError("Login form did not appear in time.") from exc
+    #     try:
+    #         page.goto(target_url, wait_until="domcontentloaded")
+    #         page.wait_for_selector(", ".join(USERNAME_SELECTORS), timeout=15_000)
+    #     except PlaywrightTimeoutError as exc:
+    #         raise RuntimeError("Login form did not appear in time.") from exc
 
-        if not fill_first_visible(page, USERNAME_SELECTORS, USERNAME):
-            raise RuntimeError("Could not find a visible username field.")
+    #     if not fill_first_visible(page, USERNAME_SELECTORS, USERNAME):
+    #         raise RuntimeError("Could not find a visible username field.")
 
-        if not fill_first_visible(page, PASSWORD_SELECTORS, password):
-            raise RuntimeError("Could not find a visible password field.")
+    #     if not fill_first_visible(page, PASSWORD_SELECTORS, password):
+    #         raise RuntimeError("Could not find a visible password field.")
 
-        if not click_first_visible(page, LOGIN_BUTTON_SELECTORS):
-            raise RuntimeError("Could not find a visible login button.")
+    #     if not click_first_visible(page, LOGIN_BUTTON_SELECTORS):
+    #         raise RuntimeError("Could not find a visible login button.")
 
-        page.wait_for_timeout(1_500)
-        browser.close()
+    #     page.wait_for_timeout(1_500)
+    #     browser.close()
 
-    # Keep Brave running after automation is complete.
-    if brave_process.poll() is not None:
-        raise RuntimeError("Brave exited unexpectedly during login automation.")
+    # # Keep Brave running after automation is complete.
+    # if brave_process.poll() is not None:
+    #     raise RuntimeError("Brave exited unexpectedly during login automation.")
 
 
 if __name__ == "__main__":
