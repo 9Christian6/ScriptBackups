@@ -13,7 +13,7 @@ def find_visible_workspaces(i3, visible_workspaces):
 # Get the current workspaces
     workspaces = i3.workspaces()
     # Print the IDs of visible workspaces
-    visible_workspaces = [ws.id for ws in workspaces if ws.visible]
+    # visible_workspaces = [ws.id for ws in workspaces if ws.visible]
 
 # Connect to the running i3 instance
 i3 = i3ipc.Connection()
@@ -27,7 +27,6 @@ find_urgent_containers(tree, urgent_containers)
 find_visible_workspaces(tree, visible_workspaces)
 #focus all the urgent containers
 currentFocus = tree.find_focused()
-visible_workspaces
 for container in urgent_containers:
     if container.urgent:
         container.command('focus')

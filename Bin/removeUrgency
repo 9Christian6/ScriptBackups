@@ -1,5 +1,8 @@
 #!/bin/bash
-dunstctl close-all
-for win in $(wmctrl -l | awk -F' ' '{print $1}'); do
-    wmctrl -i -r $win -b remove,demands_attention
-done
+for i in (xdotool search --class .\*)
+    xdotool set_window --urgency 0 $i
+end
+# dunstctl close-all
+# for win in $(wmctrl -l | awk -F' ' '{print $1}'); do
+#     wmctrl -i -r $win -b remove,demands_attention
+# done
