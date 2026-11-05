@@ -1,92 +1,117 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
+
 import sys
+import json
+import os
+import tempfile
 import i3ipc
-from pynput import keyboard
 
-class WorkspaceHistory:
-    def __init__(self):
-        self.i3 = i3ipc.Connection()
-        self.history = []
-        self.current_index = -1
-        self.ignore_next_event = False
+STATE_FILE = "/tmp/i3_workspace_history.json"
+MAX_HISTORY = 100
 
-        # Initialize history with the currently focused workspace
-        focused = self.i3.get_tree().find_focused()
-        if focused and focused.workspace():
-            self.history.append(focused.workspace().name)
-            self.current_index = 0
-            print(f"Initialized history: {self.history}")
 
-    def on_workspace_focus(self, i3, e):
-        if not e.current:
-            return
+def load_state():
+    if not os.path.exists(STATE_FILE):
+        return {"history": [], "index": -1}
 
-        new_name = e.current.num
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"history": [], "index": -1}
 
-        # Ignore events triggered by our own history navigation
-        if self.ignore_next_event:
-            self.ignore_next_event = False
-            return
 
-        # Ignore if effectively on the same workspace
-        if self.history and self.history[self.current_index] == new_name:
-            return
+def save_state(state):
+    # atomic write
+    fd, tmp = tempfile.mkstemp(dir="/tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(state, f)
 
-        # -- LOGIC FOR MANUAL SWITCH --
-        # If we went back in history and then manually switched, truncate future
-        if self.current_index < len(self.history) - 1:
-            self.history = self.history[:self.current_index + 1]
+    os.replace(tmp, STATE_FILE)
 
-        self.history.append(new_name)
-        self.current_index = len(self.history) - 1
 
-        # Limit history size to 100
-        if len(self.history) > 100:
-            self.history.pop(0)
-            self.current_index -= 1
+def current_workspace(i3):
+    focused = i3.get_tree().find_focused()
+    if focused and focused.workspace():
+        return focused.workspace().num
+    return None
 
-        print(f"Manual Switch. Stack: {self.history} | Index: {self.current_index}")
 
-    def go_back(self):
-        if self.current_index > 0:
-            self.current_index -= 1
-            target_ws = self.history[self.current_index]
-            print(f"<-- GO BACK to: {target_ws}")
-            self.switch_to(target_ws)
+# -----------------------------------------------------------
 
-    def go_forward(self):
-        if self.current_index < len(self.history) - 1:
-            self.current_index += 1
-            target_ws = self.history[self.current_index]
-            print(f"--> GO FORWARD to: {target_ws}")
-            self.switch_to(target_ws)
+def record():
+    i3 = i3ipc.Connection()
+    state = load_state()
 
-    def switch_to(self, ws_number):
-        self.ignore_next_event = True
-        self.i3.command(f'workspace number "{ws_number}"')
+    ws = current_workspace(i3)
+    if ws is None:
+        return
+
+    history = state["history"]
+    idx = state["index"]
+
+    # ignore duplicate
+    if history and idx >= 0 and history[idx] == ws:
+        return
+
+    # truncate future
+    if idx < len(history) - 1:
+        history = history[: idx + 1]
+
+    history.append(ws)
+    idx = len(history) - 1
+
+    if len(history) > MAX_HISTORY:
+        history.pop(0)
+        idx -= 1
+
+    save_state({"history": history, "index": idx})
+
+
+def go(delta):
+    i3 = i3ipc.Connection()
+    state = load_state()
+
+    history = state["history"]
+    idx = state["index"]
+
+    if not history:
+        return
+
+    new_idx = idx + delta
+
+    if new_idx < 0 or new_idx >= len(history):
+        return
+
+    target = history[new_idx]
+
+    i3.command(f'workspace number "{target}"')
+
+    save_state({"history": history, "index": new_idx})
+
+
+# -----------------------------------------------------------
+
+def usage():
+    print("usage: workspace_history.py record|back|forward")
+    sys.exit(1)
+
 
 def main():
-    history_manager = WorkspaceHistory()
+    if len(sys.argv) != 2:
+        usage()
 
-    # --- SETUP HOTKEYS (pynput) ---
-    # <cmd> maps to the Super/Windows key
-    hotkeys = keyboard.GlobalHotKeys({
-        '<cmd>+o': history_manager.go_back,
-        '<cmd>+i': history_manager.go_forward
-    })
+    cmd = sys.argv[1]
 
-    # Start the hotkey listener in a non-blocking way
-    hotkeys.start()
-    print("Listening for Super+o / Super+i...")
+    if cmd == "record":
+        record()
+    elif cmd == "back":
+        go(-1)
+    elif cmd == "forward":
+        go(1)
+    else:
+        usage()
 
-    # --- SETUP I3 LISTENER ---
-    history_manager.i3.on(i3ipc.Event.WORKSPACE_FOCUS, history_manager.on_workspace_focus)
-
-    # Start the blocking i3 loop
-    try:
-        history_manager.i3.main()
-    except KeyboardInterrupt:
-        sys.exit(0)
 
 if __name__ == "__main__":
     main()
