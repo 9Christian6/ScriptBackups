@@ -15,7 +15,7 @@ else
   else
     ACKCOMMAND="/home/christian/Bin/reminderScript.py acknowledge --name $SELECTEDEVENT"
     echo $ACKCOMMAND
-    RESPONSE=$($ACKCOMMAND)
+    #RESPONSE=$($ACKCOMMAND)
     notify-send "$RESPONSE"
   fi
 fi

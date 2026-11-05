@@ -1,23 +1,21 @@
 #!/bin/python3
 import datetime
 
+reminder_log_path = '/home/christian/Documents/TagebuchErinnerung.txt'
 
-def get_last_date():
-    with open('/home/christian/Documents/TagebuchErinnerung.txt') as f:
-        for line in f:
-            pass
-        last_line = line
-    return datetime.datetime.strptime(last_line.rstrip(), '%d.%m.%Y')
+def get_first_line():
+    with open(reminder_log_path) as reminder_file:
+        return datetime.datetime.strptime(reminder_file.readline().rstrip(), '%d.%m.%Y') 
 
 
 def main():
-    last_line = get_last_date()
-    dateDiff = datetime.datetime.today() - last_line
+    first_line = get_first_line()
+    dateDiff = datetime.datetime.today() - first_line
     if dateDiff.days > 1:
         print("Tagebuch")
         exit()
     if dateDiff.days == 1:
-        if datetime.datetime.now().hour >= 20:
+        if datetime.datetime.now().hour >= 18:
             print("Tagebuch")
             exit()
     print("")

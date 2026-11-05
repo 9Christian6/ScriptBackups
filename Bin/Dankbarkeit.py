@@ -27,7 +27,7 @@ def main():
 
     date_separator = f"{separator}Woche vom {format_date(closer_date)}\n{separator}"
     prepend_to_journal(date_separator)
-    subprocess.run([ "kitty", "--detach", "nvim", "+normal }O", "+startinsert", journal_path ])
+    subprocess.run([ "/home/christian/Bin/kitty", "--detach", "nvim", "+normal }O", "+startinsert", journal_path ])
 
 if __name__ == "__main__":
     main()

@@ -34,8 +34,8 @@ def select_option(options):
         return None
 
     selection = run_command(
-            ["rofi", "-i", "-dmenu", "-theme-str", ROFI_THEME], "\n".join(options)
-            )
+        ["rofi", "-i", "-dmenu", "-theme-str", ROFI_THEME], "\n".join(options)
+    )
 
     return selection.strip() if selection else None
 
@@ -43,15 +43,15 @@ def select_option(options):
 def get_input(prompt):
 
     return run_command(
-            [
-                "rofi",
-                "-dmenu",
-                "-p",
-                prompt,
-                "-theme",
-                "/home/christian/.config/rofi/themes/command-palette.rasi",
-                ]
-            )
+        [
+            "rofi",
+            "-dmenu",
+            "-p",
+            prompt,
+            "-theme",
+            "/home/christian/.config/rofi/themes/command-palette.rasi",
+        ]
+    )
 
 
 def normalize_weekdays(s):
@@ -105,18 +105,20 @@ def acknowledge_event():
         subprocess.run("/home/christian/Bin/Dankbarkeit.py", check=False)
     if event_id == "5":
         list_path = "/home/christian/Documents/Tageslisten/"
+        selected = "Tagesliste"
         file_name = (
-                list_path
-                + "Tagesliste_"
-                + datetime.datetime.today().strftime("%d.%m.%Y")
-                + ".txt"
-                )
+            list_path
+            + "Tagesliste_"
+            + datetime.datetime.today().strftime("%d.%m.%Y")
+            + ".txt"
+        )
         for filename in os.listdir(list_path):
             if filename.startswith("Tagesliste"):
                 os.rename(os.path.join(list_path, filename), file_name)
                 # os.remove(os.path.join(list_path, filename))
         subprocess.call(shlex.split("kitty -e nvim " + file_name))
-
+        subprocess.call(shlex.split('polybar-msg action "#tageslisten.show"'))
+        # subprocess.call(shlex.split("polybar-msg action \"#tageslisten.next\""))
     subprocess.run([REMINDER_SCRIPT, "ack", event_id], check=False)
     notify(f"Acknowledged: {selected}")
 
@@ -134,17 +136,17 @@ def add_event():
         datetime.datetime.strptime(time_str, "%H:%M")
 
         cmd = [
-                REMINDER_SCRIPT,
-                "add",
-                "--name",
-                name,
-                "--message",
-                message,
-                "--weekdays",
-                *weekdays.split(),
-                "--time",
-                time_str,
-                ]
+            REMINDER_SCRIPT,
+            "add",
+            "--name",
+            name,
+            "--message",
+            message,
+            "--weekdays",
+            *weekdays.split(),
+            "--time",
+            time_str,
+        ]
 
         notify(run_command(cmd))
 
@@ -180,12 +182,43 @@ def delete_event():
     notify(f"Deleted: {selected}")
 
 
+def dismiss_event():
+    pending = run_command(QUERY_COMMAND)
+
+    if not pending:
+        notify("No pending reminders")
+        return
+
+    events = []
+    names = []
+
+    for line in pending.split(","):
+        line = line.strip()
+        event_id, message = line.split(maxsplit=1)
+        events.append((event_id, message))
+        names.append(message)
+
+    name_to_id = {name: eid for eid, name in events}
+    if len(names) == 1:
+        selected = names[0].strip()
+    else:
+        selected = select_option(names)
+
+    if not selected:
+        return
+
+    event_id = name_to_id[selected]
+
+    subprocess.run([REMINDER_SCRIPT, "ack", event_id], check=False)
+    notify(f"Dismissed: {selected}")
+
+
 def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == "ack":
         action = "Acknowledge"
     else:
-        action = select_option(["Acknowledge", "Add", "Delete"])
+        action = select_option(["Acknowledge", "Add", "Delete", "Dismiss"])
 
     if action == "Acknowledge":
         acknowledge_event()
@@ -195,6 +228,9 @@ def main():
 
     elif action == "Delete":
         delete_event()
+
+    elif action == "Dismiss":
+        dismiss_event()
 
 
 if __name__ == "__main__":
