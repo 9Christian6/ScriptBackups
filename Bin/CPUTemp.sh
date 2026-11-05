@@ -1,8 +1,9 @@
 #!/bin/bash
 
+BARE_FLAG=$1
 # --- Configuration ---
-GREEN_LIMIT=60   # harmless
-YELLOW_LIMIT=80  # under load
+GREEN_LIMIT=30   # harmless
+YELLOW_LIMIT=70  # under load
 # Above 70°C is dangerous (red)
 
 # --- Get temperature from sensors ---
@@ -21,20 +22,36 @@ fi
 TEMP_INT=$(awk -v t="$TEMP_CLEAN" 'BEGIN {
   if (t ~ /^[0-9]+(\.[0-9]+)?$/) printf "%d", t;
   else print 0;
-}')
+  }')
 
-# --- Choose color & icon based on temperature ---
-if [ "$TEMP_INT" -lt "$GREEN_LIMIT" ]; then
-  COLOR="#00FF00"   # Green
+USAGE_INT=$(vmstat 1 3 | awk 'NR>3 {idle+=$15; count++} END {if(count>0) printf "%d", 100 - (idle/count); else print "No data"}')
+
+if [ "$USAGE_INT" -lt "$GREEN_LIMIT" ]; then
+  COLOR="#6000FF"   # Green
   ICON=""
-elif [ "$TEMP_INT" -lt "$YELLOW_LIMIT" ]; then
-  COLOR="#FFFF00"   # Yellow
+elif [ "$USAGE_INT" -lt "$YELLOW_LIMIT" ]; then
+  COLOR="#8000FF"   # Yellow
   ICON=""
 else
-  COLOR="#FF0000"   # Red
+  COLOR="#FF00FF"   # Red
   ICON=""
+fi
+# --- Choose color & icon based on temperature ---
+# if [ "$TEMP_INT" -lt "$GREEN_LIMIT" ]; then
+#   COLOR="#00FF00"   # Green
+#   ICON=""
+# elif [ "$TEMP_INT" -lt "$YELLOW_LIMIT" ]; then
+#   COLOR="#FFFF00"   # Yellow
+#   ICON=""
+# else
+#   COLOR="#FF0000"   # Red
+#   ICON=""
+# fi
+
+if [ -n "$BARE_FLAG" ]; then
+  echo "%{F$COLOR}%{F-}"
+  exit
 fi
 
 # --- Output for Polybar ---
-# echo "%{F$COLOR}${ICON} ${TEMP_INT}°C %{F-}"
-echo "%{F$COLOR}${TEMP_INT}°C %{F-}"
+echo "${TEMP_INT}°C %{F$COLOR}%{F-}"
