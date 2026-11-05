@@ -1,18 +1,18 @@
 #!/home/christian/Opt/PythonEnvs/TwitchFollowedStreamers/bin/python3.12
-import requests
-from twitchAPI.twitch import Twitch
+import argparse
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime, timedelta
+
 from twitchAPI.helper import List
 from twitchAPI.oauth import UserAuthenticator
+from twitchAPI.twitch import Twitch
 from twitchAPI.type import AuthScope
-import asyncio
-import time
-import sys
-import os
-import threading
-import json
-import argparse
-import subprocess
-from datetime import datetime, timedelta
 
 # Replace these with your own credentials from Twitch Dev Console
 APP_ID = ''

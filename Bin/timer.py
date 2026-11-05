@@ -121,15 +121,6 @@ def handle_args(args):
 def calc_finish_time(secs):
     finish_time = datetime.now(tz=Mytz()) + timedelta(seconds=secs)
     print(finish_time)
-    # now = datetime.now()
-    # fmt = "%H:%M:%S" if len(args.time) >= 8 else "%H:%M"
-    # target = datetime.combine(now, datetime.strptime(args.time, fmt).time())
-    # if target <= now:
-    #     target += timedelta(days=1)
-    #     seconds = (target - now).total_seconds()
-    # except ValueError:
-    #     sys.stderr.write("Invalid time format. Use HH:MM[:SS].\n")
-    #     sys.exit(1)
 
 
 def hide_cursor():
@@ -367,8 +358,6 @@ def display_time(seconds):
     polybar_time_display = spinner_char + " " + time_display
     width -= len(spinner_char)
 
-    # write_time_to_file(spinner_char + " " + time_display + " " + time_bar)
-
     subprocess.call(
         ["polybar-msg", "action", f"#timerIPC.send.{polybar_time_display}"],
         stdout=subprocess.DEVNULL,
@@ -434,49 +423,6 @@ def on_press(key):
         return
 
     return True
-
-
-# def ondisplay_content(f"rTimer paused at {time_display}")_press(key):
-#     global ack_enabled, seconds_total, seconds, paused, ack_waiting
-#
-#     if key == keyboard.Key.esc:
-#         ack_event.set()
-#         return
-#
-#     if not is_terminal_focused():
-#         return
-#
-#     try:
-#         pressed_char = key.char
-#     except AttributeError:
-#         return
-#
-#     if pressed_char == "q":
-#         exit_handler()
-#         os.kill(os.getpid(), signal.SIGINT)
-#         return
-#
-#     if pressed_char == "+":
-#         seconds += 10
-#         seconds_total += 10
-#         return
-#
-#     if pressed_char == "-":
-#         seconds = max(0, seconds - 10)
-#         seconds_total = max(0, seconds_total - 10)
-#         return
-#
-#     if pressed_char == "l":
-#         clear_current_line()
-#         return
-#
-#     if pressed_char == "p":
-#         paused = not paused
-#         time_display = str(timedelta(seconds=int(seconds)))
-#         display_content(f"rTimer paused at {time_display}")
-#         # sys.stdout.write(f"\rTimer paused at {time_display}")
-#         # sys.stdout.flush()
-#         return
 
 
 # --- Pomodoro ---
