@@ -1,62 +1,27 @@
 #!/bin/bash
 
-# Simple script to handle a DIY shutdown menu. When run you should see a bunch of options (shutdown, reboot etc.)
-#
-# Requirements:
-# - rofi
-# - systemd, but you can replace the commands for OpenRC or anything else
-#
-# Instructions:
-# - Save this file as power.sh or anything
-# - Give it exec priviledge, or chmod +x /path/to/power.sh
-# - Run it
-
-#chosen=$(echo -e "[Cancel]\nShutdown\nReboot\nLock\nLogout" | rofi -dmenu -no-custom -theme-str 'inputbar { enabled: false; } listview { lines: 5; }'  -yoffset -27 -i -location 5 -l 5 -len 3 -p Shutdown -theme-str 'window {width: 9%;}')
-
-# chosen=$(echo -e \
-# "[Cancel]\0icon\x1fdialog-cancel-symbolic\0[Cancel]\n\
-# Shutdown\0icon\x1fsystem-shutdown-symbolic\0Shutdown\n\
-# Reboot\0icon\x1fsystem-reboot-symbolic\0Reboot\n\
-# Lock\0icon\x1fsystem-lock-screen-symbolic\0Lock\n\
-# Logout\0icon\x1fsystem-log-out-symbolic\0Logout" \
-# | rofi -dmenu -no-custom -show-icons \
-#   -theme-str '
-#     inputbar { enabled: false; }
-#     listview { lines: 5; }
-#     element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
-#   ' \
-#   -yoffset -27 -i -location 5 -l 5 -len 3 -p "Power" \
-#   -theme-str 'window { width: 9%; }' \
-#   -icon-theme "Papirus-Dark-Symbolic")
 chosen=$(echo -e \
 "Cancel\0icon\x1f/home/christian/Pictures/Icons/Cancel.512.png\0[Cancel]\n\
 Shutdown\0icon\x1fsystem-shutdown-symbolic\0Shutdown\n\
 Reboot\0icon\x1fsystem-reboot-symbolic\0Reboot\n\
 Lock\0icon\x1fsystem-lock-screen-symbolic\0Lock\n\
 Logout\0icon\x1fsystem-log-out-symbolic\0Logout" \
-| rofi -dmenu -no-custom -show-icons \
-  -theme-str '
-    inputbar { enabled: false; }
-    listview { lines: 5; }
-    element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
-  ' \
-  -yoffset -27 -i -location 5 -l 5 -len 50 -p "Power" \
-  -theme-str 'window { width: 12%; }' \
-  -icon-theme "Papirus-Dark-Symbolic")
-# Info about some states are available here:
-# https://www.freedesktop.org/software/systemd/man/systemd-sleep.conf.html#Description
+| rofi -dmenu -i -no-custom -theme popup.rasi -theme-str ' listview { lines: 5; dynamic: false; }')
+#| rofi -dmenu -no-custom -show-icons \
+#  -theme-str '
+#    inputbar { enabled: false; }
+#    listview { lines: 5; }
+#    element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
+#  ' \
+#  -yoffset -27 -i -location 5 -l 5 -len 50 -p "Power" \
+#  -theme-str '#window { width: 12%; }' \
+#  -icon-theme "Papirus-Dark-Symbolic")
 if [[ $chosen = "Shutdown" ]]; then
 	systemctl poweroff
 elif [[ $chosen = "Reboot" ]]; then
 	systemctl reboot
 elif [[ $chosen = "Lock" ]]; then
-	exec /home/christian/Bin/Lock
+	exec /home/christian/Bin/i3lockNoClock.sh
 elif [[ $chosen = "Logout" ]]; then
 	exec swaymsg exit
-#elif [[ $chosen = "Suspend" ]]; then
-#	systemctl suspend
-#elif [[ $chosen = "Hibernate" ]]; then
-#	systemctl hibernate
-#elif [[ $chosen = "Suspend-then-hibernate" ]]; then
-#	systemctl suspend-then-hibernate
 fi
