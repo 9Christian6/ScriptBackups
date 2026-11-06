@@ -7,10 +7,12 @@ import select
 import signal
 import subprocess
 import sys
+import tempfile
 import termios
 import threading
 import time
 import tty
+import wave
 from datetime import datetime, timedelta, tzinfo
 
 import i3ipc
@@ -55,7 +57,7 @@ seconds = 0
 paused = False
 ack_waiting = False
 ack_enabled = True
-ack_interval = 8.0
+ack_interval = 1.0
 ack_event = threading.Event()
 skip_current = False
 stdin_fd = None
@@ -225,10 +227,6 @@ def write_time_to_file(time_str):
 def write_message_to_file(message):
     with open("/home/christian/Bin/timerMessage", "w") as f:
         f.write(message + "\n")
-    subprocess.Popen(
-        "pico2wave -w=/tmp/timerMessage.wav --lang=de-DE {0}".format(message),
-        shell=True,
-    )
 
 
 def notify(message, reading="", sound=True):
@@ -236,7 +234,10 @@ def notify(message, reading="", sound=True):
         reading = message
     subprocess.Popen(["notify-send", message])
     if message:
-        subprocess.Popen(["/home/christian/Bin/startSilent.sh", "tts.sh", reading])
+        subprocess.Popen(
+            ["/home/christian/Bin/tts.sh", "--in-place", reading],
+            stdin=subprocess.DEVNULL,
+        )
     elif sound:
         subprocess.Popen(
             "play /home/christian/Music/Bellsound.aiff -q",
@@ -246,20 +247,55 @@ def notify(message, reading="", sound=True):
         )
 
 
-def repeat_alert_until_ack(message, reading="", interval=2.0):
+def create_tts_file(message, directory):
+    """Generate speech in directory and return its path and duration in seconds."""
+    path = os.path.join(directory, "speech.wav")
+    text = message.strip() or "Countdown finished"
+    subprocess.run(
+        ["pico2wave", f"--wave={path}", "--lang=de-DE", "--", text],
+        stdin=subprocess.DEVNULL,
+        check=True,
+    )
+    with wave.open(path, "rb") as audio:
+        duration = audio.getnframes() / audio.getframerate()
+    return path, duration
+
+
+def repeat_alert_until_ack(message, reading="", interval=1.0):
     global ack_waiting, skip_current
-    interval = 1.0
-    ack_waiting = True
     ack_event.clear()
-    while not ack_event.is_set() and not skip_current:
-        subprocess.call(
-            ["/home/christian/Bin/timerMessage.sh"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-        )
-        ack_event.wait(interval)
-    ack_waiting = False
-    skip_current = False
+    ack_waiting = True
+    try:
+        with tempfile.TemporaryDirectory(prefix="timer-tts-") as directory:
+            speech = None
+            while not ack_event.is_set() and not skip_current:
+                duration = 0.0
+                deadline = None
+                try:
+                    if speech is None:
+                        speech = create_tts_file(reading or message, directory)
+                    path, duration = speech
+                    # Count playback time once: the total period is the WAV
+                    # duration plus the pause, rather than adding both twice.
+                    deadline = time.monotonic() + duration + max(0.1, interval)
+                    subprocess.call(
+                        ["/home/christian/Bin/timerMessage.sh", message,
+                         "--wave", path],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                    )
+                except (OSError, subprocess.CalledProcessError, wave.Error) as exc:
+                    print(f"Unable to produce timer alert: {exc}", file=sys.stderr)
+                if deadline is None:
+                    deadline = time.monotonic() + max(0.1, interval)
+                while not ack_event.is_set() and not skip_current:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    ack_event.wait(min(0.1, remaining))
+    finally:
+        ack_waiting = False
+        skip_current = False
 
 
 # --- Timer functions ---
@@ -409,7 +445,8 @@ def on_press(key):
     global seconds_total, seconds, paused, skip_current
 
     if key == keyboard.Key.esc:
-        ack_event.set()
+        if ack_waiting:
+            ack_event.set()
         return
 
     if not is_terminal_focused():
@@ -533,8 +570,8 @@ def main():
     parser.add_argument(
         "--ack-interval",
         type=float,
-        default=8.0,
-        help="Seconds between repeated alerts while waiting for acknowledgment",
+        default=1.0,
+        help="Extra pause after the measured speech duration (default: 1 second)",
     )
 
     if len(sys.argv) <= 1:
