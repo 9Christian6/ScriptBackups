@@ -3,6 +3,7 @@ import argparse
 import atexit
 import os
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -60,6 +61,8 @@ skip_current = False
 stdin_fd = None
 stdin_settings = None
 terminal_input_enabled = False
+terminal_input_thread = None
+terminal_input_stop = threading.Event()
 keyboard_controller = keyboard.Controller()
 
 
@@ -132,32 +135,57 @@ def show_cursor():
 
 
 def setup_terminal_input():
-    global stdin_fd, stdin_settings, terminal_input_enabled
+    global stdin_fd, stdin_settings, terminal_input_enabled, terminal_input_thread
+    if terminal_input_enabled:
+        return True
     if not sys.stdin.isatty():
         return False
     stdin_fd = sys.stdin.fileno()
+    if os.tcgetpgrp(stdin_fd) != os.getpgrp():
+        return False
     stdin_settings = termios.tcgetattr(stdin_fd)
+    # Cbreak disables echo without disabling terminal signals such as Ctrl-C.
+    # This only changes the terminal; desktop shortcuts remain available.
     tty.setcbreak(stdin_fd)
     terminal_input_enabled = True
+    terminal_input_stop.clear()
+    terminal_input_thread = threading.Thread(target=discard_terminal_input, daemon=True)
+    terminal_input_thread.start()
     return True
 
 
+def discard_terminal_input():
+    # pynput handles timer shortcuts. Drain their terminal copies (and all other
+    # input) so they cannot build up or reach the shell when the timer exits.
+    while not terminal_input_stop.is_set():
+        try:
+            readable, _, _ = select.select([stdin_fd], [], [], 0.1)
+            if readable and not os.read(stdin_fd, 4096):
+                return
+        except (OSError, ValueError):
+            return
+
+
 def restore_terminal_input():
-    global stdin_fd, stdin_settings, terminal_input_enabled
+    global stdin_fd, stdin_settings, terminal_input_enabled, terminal_input_thread
     if stdin_fd is None or stdin_settings is None:
         return
-    termios.tcsetattr(stdin_fd, termios.TCSADRAIN, stdin_settings)
+    terminal_input_stop.set()
+    if terminal_input_thread is not None:
+        terminal_input_thread.join()
+        terminal_input_thread = None
+    termios.tcsetattr(stdin_fd, termios.TCSAFLUSH, stdin_settings)
     stdin_settings = None
     terminal_input_enabled = False
 
 
 # --- Cleanup handler ---
 def exit_handler():
+    restore_terminal_input()
     write_time_to_file("")
     subprocess.call(
         ["polybar-msg", "action", f"#timerIPC.send."], stdout=subprocess.DEVNULL
     )
-    restore_terminal_input()
     show_cursor()
     clear_current_line()
 
@@ -230,7 +258,6 @@ def repeat_alert_until_ack(message, reading="", interval=2.0):
             stderr=subprocess.STDOUT,
         )
         ack_event.wait(interval)
-    exit_handler()
     ack_waiting = False
     skip_current = False
 
@@ -518,11 +545,16 @@ def main():
     ack_enabled = not args.no_ack
     ack_interval = max(0.5, args.ack_interval)
 
-    listener = keyboard.Listener(on_press=on_press)
+    listener = keyboard.Listener(on_press=on_press, suppress=False)
     listener.start()
 
-    handle_args(args)
-    listener.stop()
+    try:
+        if not args.silent:
+            setup_terminal_input()
+        handle_args(args)
+    finally:
+        listener.stop()
+        restore_terminal_input()
     exit_handler()
     show_cursor()
 
