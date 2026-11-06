@@ -1,12 +1,15 @@
 #!/usr/bin/env /home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
 import datetime
+import fcntl
 import os
 import shlex
 import subprocess
+import sys
 import time
 
 # Log file location
 LOG_FILE = os.path.expanduser("~/.rofi_zsh.log")
+MAX_LOG_BYTES = 10 * 1024 * 1024
 ZSH_HISTORY_FILE = os.path.expanduser("~/.zsh_history")
 SHELL_SOURCE_FILES = [
     "~/.aliases",
@@ -33,12 +36,37 @@ INTERACTIVE_COMMANDS = {
 }
 
 
+def append_log(data):
+    """Keep the newest log lines in a single file, capped at 10 MiB."""
+    with open(LOG_FILE, "a+b") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        if size + len(data) <= MAX_LOG_BYTES:
+            f.write(data)
+        else:
+            # Read only the tail needed, even if an existing log is very large.
+            keep = max(0, MAX_LOG_BYTES - len(data))
+            start = max(0, size - keep)
+            f.seek(start)
+            retained = f.read(keep) + data
+            if len(retained) > MAX_LOG_BYTES:
+                retained = retained[-MAX_LOG_BYTES:]
+                start = 1
+            if start:
+                # Discard the partial oldest line (also avoids split UTF-8).
+                newline = retained.find(b"\n")
+                retained = retained[newline + 1:] if newline >= 0 else b""
+            f.seek(0)
+            f.truncate()
+            f.write(retained)
+
+
 def write_log(msg):
-    with open(LOG_FILE, "a") as f:
-        timestamp = datetime.datetime.now(
-            datetime.timezone(datetime.timedelta(hours=2))
-        ).strftime("[%Y-%m-%d %H:%M:%S]")
-        f.write(f"{timestamp} {msg}\n")
+    timestamp = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=2))
+    ).strftime("[%Y-%m-%d %H:%M:%S]")
+    append_log(f"{timestamp} {msg}\n".encode("utf-8"))
 
 
 def get_interactive_zsh_env():
@@ -81,34 +109,30 @@ def load_zsh_history_commands():
         if command:
             commands.append(command)
 
-    # Newest command first for backward navigation.
-    commands.reverse()
-    return commands
+    # Show the latest 75 history entries, newest first.
+    return commands[-75:][::-1]
 
 
-def run_rofi_prompt(prefill):
+def run_rofi_prompt(history_commands):
     rofi_args = [
         "rofi",
         "-dmenu",
+        "-i",
+        "-no-sort",
         "-p",
         "Run in ZSH:",
         "-theme",
-        ".config/rofi/themes/command-palette.rasi",
+        os.path.expanduser("~/.config/rofi/themes/command-palette.rasi"),
+        "-theme-str",
+        "listview { enabled: true; lines: 12; }",
         "-kb-row-up",
-        "",
+        "Up,Control+k",
         "-kb-row-down",
-        "",
-        "-kb-custom-1",
-        "Control+k,Up",
-        "-kb-custom-2",
-        "Control+j,Down",
+        "Down,Control+j",
     ]
-    if prefill:
-        rofi_args.extend(["-filter", prefill])
-
     return subprocess.run(
         rofi_args,
-        input="",
+        input="\n".join(history_commands),
         text=True,
         capture_output=True,
         check=False,
@@ -116,50 +140,13 @@ def run_rofi_prompt(prefill):
 
 
 def get_user_command_from_rofi():
-    history_commands = load_zsh_history_commands()
-    history_index = -1
-    prefill = ""
-    draft_before_history = ""
-
-    while True:
-        proc = run_rofi_prompt(prefill)
-        entered_text = proc.stdout.rstrip("\n")
-
-        # Enter pressed.
-        if proc.returncode == 0:
-            return entered_text
-
-        # Escape/close pressed.
-        if proc.returncode == 1:
-            return None
-
-        # Ctrl+K / Up: older command (backward in history).
-        if proc.returncode == 10:
-            if not history_commands:
-                prefill = entered_text
-                continue
-            if history_index == -1:
-                draft_before_history = entered_text
-            if history_index < len(history_commands) - 1:
-                history_index += 1
-            prefill = history_commands[history_index]
-            continue
-
-        # Ctrl+J / Down: newer command (forward in history).
-        if proc.returncode == 11:
-            if history_index == -1:
-                prefill = entered_text
-                continue
-            history_index -= 1
-            if history_index >= 0:
-                prefill = history_commands[history_index]
-            else:
-                prefill = draft_before_history
-            continue
-
-        # Report actual Rofi failures, while allowing custom navigation codes.
-        proc.check_returncode()
+    proc = run_rofi_prompt(load_zsh_history_commands())
+    if proc.returncode == 0:
+        return proc.stdout.rstrip("\n")
+    if proc.returncode == 1:
         return None
+    proc.check_returncode()
+    return None
 
 
 def extract_command_name(command):
@@ -263,26 +250,28 @@ def main():
         except FileNotFoundError:
             write_log("kitty not found; falling back to non-interactive execution.")
 
-    with open(LOG_FILE, "a") as log_out:
-        log_out.write(f"--- Start Output of '{user_command}' ---\n")
-        quoted_log_file = shlex.quote(LOG_FILE)
-        shell_command = (
-            f'output="$({base_command} 2>&1)"; '
-            f"cmd_status=$?; "
-            f"printf '%s\\n' \"$output\" >> {quoted_log_file}; "
-            f'if [[ -n "$output" ]]; then '
-            f"notify-send 'Command Output' \"$output\"; "
-            f"fi; "
-            f"exit $cmd_status"
-        )
-        subprocess.Popen(
-            ["zsh", "-c", shell_command],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=interactive_env,
-        )
+    append_log(f"--- Start Output of '{user_command}' ---\n".encode("utf-8"))
+    log_writer = f"{shlex.quote(sys.executable)} {shlex.quote(os.path.abspath(__file__))} --append-output"
+    shell_command = (
+        f'output="$({base_command} 2>&1)"; '
+        f"cmd_status=$?; "
+        f"printf '%s\\n' \"$output\" | {log_writer}; "
+        f'if [[ -n "$output" ]]; then '
+        f"notify-send 'Command Output' \"$output\"; "
+        f"fi; "
+        f"exit $cmd_status"
+    )
+    subprocess.Popen(
+        ["zsh", "-c", shell_command],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=interactive_env,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--append-output"]:
+        append_log(sys.stdin.buffer.read())
+    else:
+        main()

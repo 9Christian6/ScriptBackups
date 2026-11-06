@@ -303,11 +303,12 @@ def countup_seconds():
     global seconds, TICKTIME
     while True:
         if not paused:
-            time_display = str(timedelta(seconds=int(seconds)))
-            spinner_char = SPINNER[calculate_spinner_char_index(seconds)]
-            width = os.get_terminal_size().columns - 15
-            sys.stdout.write(f"\r{time_display.ljust(width)}{spinner_char}")
-            sys.stdout.flush()
+            if sys.stdout.isatty():
+                time_display = str(timedelta(seconds=int(seconds)))
+                spinner_char = SPINNER[calculate_spinner_char_index(seconds)]
+                width = os.get_terminal_size().columns - 15
+                sys.stdout.write(f"\r{time_display.ljust(width)}{spinner_char}")
+                sys.stdout.flush()
             seconds = round(seconds + TICKTIME, 1)
             time.sleep(TICKTIME)
 
@@ -362,6 +363,8 @@ def visible_length(text):
 
 
 def display_content(content):
+    if not sys.stdout.isatty():
+        return
     try:
         width = os.get_terminal_size().columns - 2
     except OSError:
@@ -430,6 +433,8 @@ def display_time(seconds):
 
 
 def clear_current_line():
+    if not sys.stdout.isatty():
+        return
     try:
         cols, rows = os.get_terminal_size()
         terminal_prompt = os.environ["LEFT_PROMPT_LINE"]
@@ -530,6 +535,11 @@ def is_terminal_focused():
 def main():
     global seconds, silent, TICKTIME, SPINNER, SPINNERS, ack_enabled, ack_interval
 
+    # The command palette captures stdout in a pipe. Only render text when
+    # attached to a terminal; keep stderr available for actual errors.
+    if not sys.stdout.isatty():
+        sys.stdout = open(os.devnull, "w")
+
     atexit.register(exit_handler)
     parser = argparse.ArgumentParser(description="A simple timer")
     parser.add_argument("-s", "--seconds", type=int, help="Number of seconds")
@@ -586,7 +596,7 @@ def main():
     listener.start()
 
     try:
-        if not args.silent:
+        if not args.silent and sys.stdout.isatty():
             setup_terminal_input()
         handle_args(args)
     finally:
