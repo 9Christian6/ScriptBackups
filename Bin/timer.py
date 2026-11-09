@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, tzinfo
 import i3ipc
 from pynput import keyboard
 from tzlocal import get_localzone
+from Xlib import X, XK, display, error
 
 
 class Mytz(tzinfo):
@@ -55,7 +56,6 @@ BARSYMBOLSFULL = ["■", "▓"]
 BARSYMBOLSEMPTY = ["▢", "▒"]
 seconds = 0
 paused = False
-ack_waiting = False
 ack_enabled = True
 ack_interval = 1.0
 ack_event = threading.Event()
@@ -65,7 +65,6 @@ stdin_settings = None
 terminal_input_enabled = False
 terminal_input_thread = None
 terminal_input_stop = threading.Event()
-keyboard_controller = keyboard.Controller()
 
 
 def handle_args(args):
@@ -261,12 +260,98 @@ def create_tts_file(message, directory):
     return path, duration
 
 
-def repeat_alert_until_ack(message, reading="", interval=1.0):
-    global ack_waiting, skip_current
-    ack_event.clear()
-    ack_waiting = True
+class EscapeAcknowledgement:
+    """Temporarily route Escape to the timer instead of the focused X11 client."""
+
+    def __enter__(self):
+        self.display = display.Display()
+        try:
+            self.root = self.display.screen().root
+            self.keycode = self.display.keysym_to_keycode(XK.string_to_keysym("Escape"))
+            if not self.keycode:
+                raise RuntimeError("No Escape key is available in the X11 keymap")
+            grab_error = error.CatchError()
+            self.root.grab_key(
+                self.keycode, X.AnyModifier, False,
+                X.GrabModeAsync, X.GrabModeAsync, onerror=grab_error,
+            )
+            # GrabKey errors are asynchronous. Do not start an alert with a
+            # listener that silently fails to intercept the acknowledgement.
+            self.display.sync()
+            if grab_error.get_error() is not None:
+                raise RuntimeError(
+                    "Cannot reserve Escape for timer acknowledgement: "
+                    "another desktop shortcut or timer may already own it"
+                )
+        except BaseException:
+            self.display.close()
+            raise
+        return self
+
+    def wait(self, timeout):
+        deadline = time.monotonic() + max(0, timeout)
+        while not ack_event.is_set():
+            while self.display.pending_events():
+                event = self.display.next_event()
+                if event.type == X.KeyRelease and event.detail == self.keycode:
+                    # Wait for physical release, ignoring autorepeat releases.
+                    # This consumes both halves of Escape and any held repeats
+                    # before restoring normal delivery to other applications.
+                    keymap = self.display.query_keymap()
+                    if not keymap[self.keycode // 8] & (1 << (self.keycode % 8)):
+                        ack_event.set()
+            remaining = deadline - time.monotonic()
+            if ack_event.is_set() or remaining <= 0:
+                break
+            select.select([self.display], [], [], remaining)
+        return ack_event.is_set()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            self.root.ungrab_key(self.keycode, X.AnyModifier)
+            self.display.ungrab_keyboard(X.CurrentTime)
+            self.display.sync()
+        finally:
+            self.display.close()
+
+
+def play_alert_until_ack(message, path, acknowledgement):
+    # The helper launches aplay. Give both processes their own group so an
+    # acknowledgement stops the current speech as well as future repetitions.
+    process = subprocess.Popen(
+        ["/home/christian/Bin/timerMessage.sh", message, "--wave", path],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     try:
-        with tempfile.TemporaryDirectory(prefix="timer-tts-") as directory:
+        while process.poll() is None:
+            if acknowledgement.wait(0.05) or skip_current:
+                break
+    finally:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+
+
+def repeat_alert_until_ack(message, reading="", interval=1.0):
+    global skip_current
+    ack_event.clear()
+    try:
+        with (
+            EscapeAcknowledgement() as acknowledgement,
+            tempfile.TemporaryDirectory(prefix="timer-tts-") as directory,
+        ):
             speech = None
             while not ack_event.is_set() and not skip_current:
                 duration = 0.0
@@ -274,16 +359,13 @@ def repeat_alert_until_ack(message, reading="", interval=1.0):
                 try:
                     if speech is None:
                         speech = create_tts_file(reading or message, directory)
+                    if acknowledgement.wait(0) or skip_current:
+                        break
                     path, duration = speech
                     # Count playback time once: the total period is the WAV
                     # duration plus the pause, rather than adding both twice.
                     deadline = time.monotonic() + duration + max(0.1, interval)
-                    subprocess.call(
-                        ["/home/christian/Bin/timerMessage.sh", message,
-                         "--wave", path],
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                    )
+                    play_alert_until_ack(message, path, acknowledgement)
                 except (OSError, subprocess.CalledProcessError, wave.Error) as exc:
                     print(f"Unable to produce timer alert: {exc}", file=sys.stderr)
                 if deadline is None:
@@ -292,9 +374,8 @@ def repeat_alert_until_ack(message, reading="", interval=1.0):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         break
-                    ack_event.wait(min(0.1, remaining))
+                    acknowledgement.wait(min(0.1, remaining))
     finally:
-        ack_waiting = False
         skip_current = False
 
 
@@ -450,8 +531,8 @@ def on_press(key):
     global seconds_total, seconds, paused, skip_current
 
     if key == keyboard.Key.esc:
-        if ack_waiting:
-            ack_event.set()
+        # The temporary X11 grab owns acknowledgement. pynput only observes
+        # events and cannot prevent Escape from reaching another application.
         return
 
     if not is_terminal_focused():
