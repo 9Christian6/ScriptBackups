@@ -109,8 +109,8 @@ def load_zsh_history_commands():
         if command:
             commands.append(command)
 
-    # Show the latest 75 history entries, newest first.
-    return commands[-75:][::-1]
+    # Keep the most recent occurrence of each command, newest first.
+    return list(dict.fromkeys(reversed(commands)))[:75]
 
 
 def run_rofi_prompt(history_commands):
@@ -121,14 +121,29 @@ def run_rofi_prompt(history_commands):
         "-no-sort",
         "-p",
         "Run in ZSH:",
+        "-mesg",
+        "Up/Down: select and edit | Enter: run text | Esc: cancel",
         "-theme",
         os.path.expanduser("~/.config/rofi/themes/command-palette.rasi"),
         "-theme-str",
-        "listview { enabled: true; lines: 12; }",
+        "listview { enabled: true; lines: 12; fixed-height: false; dynamic: true; }",
         "-kb-row-up",
         "Up,Control+k",
         "-kb-row-down",
         "Down,Control+j",
+        # Move on key press, then copy the highlighted entry on key release.
+        # Rofi uses ! to bind an action to release instead of press.
+        "-kb-element-next",
+        "",
+        "-kb-row-select",
+        "!Up,!Down,!Control+k,!Control+j,Tab,Control+space",
+        # Always submit the input, even when a history row still matches it.
+        "-kb-accept-entry",
+        "",
+        "-kb-accept-custom",
+        "Return,KP_Enter,Control+Return,Control+m",
+        "-kb-remove-to-eol",
+        "",
     ]
     return subprocess.run(
         rofi_args,
