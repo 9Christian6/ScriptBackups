@@ -48,6 +48,17 @@ def init_db():
     )
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS event_state_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER NOT NULL,
+        last_triggered TEXT,
+        pending INTEGER,
+        acknowledged_date TEXT,
+        FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+    )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -264,41 +275,79 @@ def get_last_journal_ack():
 
 
 def acknowledge_journal():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    last_acked = cur.execute(
-        "SELECT acknowledged_date FROM event_state WHERE event_id = 1"
-    )
-    last_acked_string = last_acked.fetchone()[0]
-    next_ack_date = (
-        datetime.strptime(last_acked_string, "%Y-%m-%d") + timedelta(days=1)
-    ).date()
-    cur.execute(
-        "UPDATE event_state SET acknowledged_date = ? WHERE event_id = ?",
-        (next_ack_date.isoformat(), "1"),
-    )
-    if next_ack_date >= datetime.today().date():
-        cur.execute("UPDATE event_state SET pending = 0 WHERE event_id = ?", ("1"))
-
-    conn.commit()
-    conn.close()
+    acknowledge(1)
 
 
 def acknowledge(reminder_id):
-    if reminder_id == 1:
-        acknowledge_journal()
-        return
+    """Save the previous state and acknowledge atomically, allowing an undo."""
+    reminder_id = int(reminder_id)
     conn = get_db_connection()
-    cur = conn.cursor()
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            state = conn.execute(
+                "SELECT * FROM event_state WHERE event_id = ?", (reminder_id,)
+            ).fetchone()
+            if state is None:
+                print("No event found:", reminder_id)
+                return
 
-    cur.execute(
-        "UPDATE event_state SET pending = 0, acknowledged_date = ? WHERE event_id = ?",
-        (date.today().isoformat(), reminder_id),
-    )
+            conn.execute(
+                """INSERT INTO event_state_history
+                   (event_id, last_triggered, pending, acknowledged_date)
+                   VALUES (?, ?, ?, ?)""",
+                (reminder_id, state["last_triggered"], state["pending"],
+                 state["acknowledged_date"]),
+            )
+            acknowledged_date = date.today()
+            pending = 0
+            if reminder_id == 1:
+                acknowledged_date = (
+                    date.fromisoformat(state["acknowledged_date"]) + timedelta(days=1)
+                )
+                if acknowledged_date < date.today():
+                    pending = state["pending"]
 
-    conn.commit()
-    conn.close()
+            conn.execute(
+                """UPDATE event_state SET pending = ?, acknowledged_date = ?
+                   WHERE event_id = ?""",
+                (pending, acknowledged_date.isoformat(), reminder_id),
+            )
+    finally:
+        conn.close()
     print("Acknowledged", reminder_id)
+
+
+def reset_reminder(reminder_id):
+    """Restore and consume the most recent saved state for an existing event."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute(
+                """SELECT history.* FROM event_state_history AS history
+                   JOIN events ON events.id = history.event_id
+                   JOIN event_state ON event_state.event_id = history.event_id
+                   WHERE history.event_id = ? ORDER BY history.id DESC LIMIT 1""",
+                (reminder_id,),
+            ).fetchone()
+            if previous is None:
+                print("No saved state to reset for event", reminder_id)
+                return
+
+            conn.execute(
+                """UPDATE event_state
+                   SET last_triggered = ?, pending = ?, acknowledged_date = ?
+                   WHERE event_id = ?""",
+                (previous["last_triggered"], previous["pending"],
+                 previous["acknowledged_date"], reminder_id),
+            )
+            conn.execute(
+                "DELETE FROM event_state_history WHERE id = ?", (previous["id"],)
+            )
+    finally:
+        conn.close()
+    print("Reset event", reminder_id, "to its previous state")
 
 
 def delete_reminder(reminder_id):
@@ -347,6 +396,9 @@ def main():
     p_ack = sub.add_parser("ack")
     p_ack.add_argument("id", type=int)
 
+    p_reset = sub.add_parser("reset", help="Undo an event's last acknowledgement")
+    p_reset.add_argument("id", type=int)
+
     p_del = sub.add_parser("delete")
     p_del.add_argument("id", type=int)
 
@@ -368,6 +420,9 @@ def main():
 
     elif args.cmd == "ack":
         acknowledge(args.id)
+
+    elif args.cmd == "reset":
+        reset_reminder(args.id)
 
     elif args.cmd == "delete":
         delete_reminder(args.id)

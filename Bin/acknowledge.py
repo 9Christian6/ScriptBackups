@@ -186,11 +186,35 @@ def dismiss_event() -> None:
     notify(f"Dismissed: {selected}")
 
 
+def reset_event() -> None:
+    """Select an event and undo its last acknowledgement or dismissal."""
+    event_list = run_command(LIST_COMMAND)
+    if not event_list:
+        notify("No events found")
+        return
+
+    # Each schedule has its own row, so present each event only once.
+    events = {}
+    for line in event_list.splitlines():
+        event_id, details = line.split(maxsplit=1)
+        name, _, _ = details.rsplit(maxsplit=2)
+        events[event_id] = name
+
+    selected = select_option([
+        f"{event_id} {name}" for event_id, name in events.items()
+    ])
+    if not selected:
+        return
+
+    event_id = selected.split(maxsplit=1)[0]
+    notify(run_command([REMINDER_SCRIPT, "reset", event_id]))
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "ack":
         action = "Acknowledge"
     else:
-        action = select_option(["Acknowledge", "Add", "Delete", "Dismiss"])
+        action = select_option(["Acknowledge", "Add", "Delete", "Dismiss", "Reset"])
 
     if action == "Acknowledge":
         acknowledge_event()
@@ -203,6 +227,9 @@ def main() -> None:
 
     elif action == "Dismiss":
         dismiss_event()
+
+    elif action == "Reset":
+        reset_event()
 
 
 if __name__ == "__main__":
