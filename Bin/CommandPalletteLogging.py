@@ -122,7 +122,7 @@ def run_rofi_prompt(history_commands):
         "-p",
         "Run in ZSH:",
         "-mesg",
-        "Up/Down: select and edit | Enter: run text | Esc: cancel",
+        "Up/Down: select history | Tab: apply selection | Enter: run text | Esc: cancel",
         "-theme",
         os.path.expanduser("~/.config/rofi/themes/command-palette.rasi"),
         "-theme-str",
@@ -131,12 +131,11 @@ def run_rofi_prompt(history_commands):
         "Up,Control+k",
         "-kb-row-down",
         "Down,Control+j",
-        # Move on key press, then copy the highlighted entry on key release.
-        # Rofi uses ! to bind an action to release instead of press.
+        # Navigate history without changing the input; only Tab applies it.
         "-kb-element-next",
         "",
         "-kb-row-select",
-        "!Up,!Down,!Control+k,!Control+j,Tab,Control+space",
+        "Tab",
         # Always submit the input, even when a history row still matches it.
         "-kb-accept-entry",
         "",
