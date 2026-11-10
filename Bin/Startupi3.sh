@@ -1,4 +1,6 @@
 #!/bin/bash	
+# Clear urgency while autostart applications load; normal urgency resumes after 90s.
+/usr/bin/python3 /home/christian/Bin/clearStartupUrgency.py &
 exec /home/christian/Bin/StartWorkspaceHistory.sh&
 exec /home/christian/Bin/StartSocials.sh&
 exec /home/christian/Bin/StartupTerminali3.sh&
