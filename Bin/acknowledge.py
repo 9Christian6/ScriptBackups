@@ -1,14 +1,14 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3
-import shutil
-import subprocess
-import datetime
-import sys
-import shlex
-import os
-import glob
+from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
+import subprocess
+import sys
 
 REMINDER_SCRIPT = "/home/christian/Bin/reminderScript.py"
+TAGESLISTEN_DIRECTORY = Path("/home/christian/Documents/Tageslisten")
+ROFI_INPUT_THEME = "/home/christian/.config/rofi/themes/command-palette.rasi"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 QUERY_COMMAND = [REMINDER_SCRIPT, "query"]
 LIST_COMMAND = [REMINDER_SCRIPT, "list"]
@@ -19,17 +19,18 @@ listview { fixed-height: false; }
 """
 
 
-def run_command(cmd, input_text=None):
-    result = subprocess.run(cmd, input=input_text, text=True, capture_output=True)
+def run_command(cmd: Sequence[str], input_text: str | None = None) -> str:
+    result = subprocess.run(
+        cmd, input=input_text, text=True, capture_output=True, check=False
+    )
     return result.stdout.strip()
 
 
-def notify(msg):
-    subprocess.run(["notify-send", msg])
+def notify(message: str) -> None:
+    subprocess.run(["notify-send", message], check=False)
 
 
-def select_option(options):
-
+def select_option(options: Sequence[str]) -> str | None:
     if not options:
         return None
 
@@ -37,11 +38,10 @@ def select_option(options):
         ["rofi", "-i", "-dmenu", "-theme-str", ROFI_THEME], "\n".join(options)
     )
 
-    return selection.strip() if selection else None
+    return selection or None
 
 
-def get_input(prompt):
-
+def get_input(prompt: str) -> str:
     return run_command(
         [
             "rofi",
@@ -49,82 +49,76 @@ def get_input(prompt):
             "-p",
             prompt,
             "-theme",
-            "/home/christian/.config/rofi/themes/command-palette.rasi",
+            ROFI_INPUT_THEME,
         ]
     )
 
 
-def normalize_weekdays(s):
-
-    valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-
-    if not s.strip():
+def normalize_weekdays(value: str) -> str:
+    if not value.strip():
         raise ValueError("Empty weekday list")
 
-    days = [d.strip().lower() for d in s.split(",")]
+    days = [day.strip().lower() for day in value.split(",")]
 
-    for d in days:
-        if d not in valid:
-            raise ValueError(f"Invalid weekday: {d}")
+    for day in days:
+        if day not in WEEKDAYS:
+            raise ValueError(f"Invalid weekday: {day}")
 
-    order = {d: i for i, d in enumerate(valid)}
-
-    return " ".join(sorted(days, key=lambda d: order[d]))
+    return " ".join(sorted(days, key=WEEKDAYS.index))
 
 
-def acknowledge_event():
+def select_pending_event() -> tuple[str, str] | None:
+    """Return the selected pending reminder's ID and message, if any."""
     pending = run_command(QUERY_COMMAND)
 
     if not pending:
         notify("No pending reminders")
         return
 
-    events = []
-    names = []
-
-    for line in pending.split(","):
-        line = line.strip()
-        event_id, message = line.split(maxsplit=1)
-        events.append((event_id, message))
-        names.append(message)
-
-    name_to_id = {name: eid for eid, name in events}
+    events = [entry.strip().split(maxsplit=1) for entry in pending.split(",")]
+    names = [message for _, message in events]
+    name_to_id = {message: event_id for event_id, message in events}
     if len(names) == 1:
-        selected = names[0].strip()
+        selected = names[0]
     else:
         selected = select_option(names)
 
     if not selected:
         return
 
-    event_id = name_to_id[selected]
+    return name_to_id[selected], selected
+
+
+def handle_tagesliste() -> None:
+    """Date the daily list, open it for editing, and show its Polybar module."""
+    file_path = TAGESLISTEN_DIRECTORY / f"Tagesliste_{datetime.today():%d.%m.%Y}.txt"
+    for entry in TAGESLISTEN_DIRECTORY.iterdir():
+        if entry.name.startswith("Tagesliste"):
+            entry.rename(file_path)
+
+    subprocess.run(["kitty", "-e", "nvim", str(file_path)], check=False)
+    subprocess.run(["polybar-msg", "action", "#tageslisten.show"], check=False)
+
+
+def acknowledge_event() -> None:
+    event = select_pending_event()
+    if event is None:
+        return
+
+    event_id, selected = event
 
     if event_id == "1":
-        subprocess.run("/home/christian/Bin/Tagebuch.py", check=False)
-    if event_id == "3":
-        subprocess.run("/home/christian/Bin/Dankbarkeit.py", check=False)
-    if event_id == "5":
-        list_path = "/home/christian/Documents/Tageslisten/"
+        subprocess.run(["/home/christian/Bin/Tagebuch.py"], check=False)
+    elif event_id == "3":
+        subprocess.run(["/home/christian/Bin/Dankbarkeit.py"], check=False)
+    elif event_id == "5":
+        handle_tagesliste()
         selected = "Tagesliste"
-        file_name = (
-            list_path
-            + "Tagesliste_"
-            + datetime.datetime.today().strftime("%d.%m.%Y")
-            + ".txt"
-        )
-        for filename in os.listdir(list_path):
-            if filename.startswith("Tagesliste"):
-                os.rename(os.path.join(list_path, filename), file_name)
-                # os.remove(os.path.join(list_path, filename))
-        subprocess.call(shlex.split("kitty -e nvim " + file_name))
-        subprocess.call(shlex.split('polybar-msg action "#tageslisten.show"'))
-        # subprocess.call(shlex.split("polybar-msg action \"#tageslisten.next\""))
     subprocess.run([REMINDER_SCRIPT, "ack", event_id], check=False)
     notify(f"Acknowledged: {selected}")
 
 
-def add_event():
-
+def add_event() -> None:
     try:
         name = get_input("Event Name")
         message = get_input("Message")
@@ -133,7 +127,7 @@ def add_event():
 
         time_str = get_input("Time (HH:MM)")
 
-        datetime.datetime.strptime(time_str, "%H:%M")
+        datetime.strptime(time_str, "%H:%M")
 
         cmd = [
             REMINDER_SCRIPT,
@@ -150,12 +144,11 @@ def add_event():
 
         notify(run_command(cmd))
 
-    except ValueError as e:
-        notify(str(e))
+    except ValueError as error:
+        notify(str(error))
 
 
-def delete_event():
-
+def delete_event() -> None:
     event_list = run_command(LIST_COMMAND)
 
     if not event_list:
@@ -182,39 +175,18 @@ def delete_event():
     notify(f"Deleted: {selected}")
 
 
-def dismiss_event():
-    pending = run_command(QUERY_COMMAND)
-
-    if not pending:
-        notify("No pending reminders")
+def dismiss_event() -> None:
+    event = select_pending_event()
+    if event is None:
         return
 
-    events = []
-    names = []
-
-    for line in pending.split(","):
-        line = line.strip()
-        event_id, message = line.split(maxsplit=1)
-        events.append((event_id, message))
-        names.append(message)
-
-    name_to_id = {name: eid for eid, name in events}
-    if len(names) == 1:
-        selected = names[0].strip()
-    else:
-        selected = select_option(names)
-
-    if not selected:
-        return
-
-    event_id = name_to_id[selected]
+    event_id, selected = event
 
     subprocess.run([REMINDER_SCRIPT, "ack", event_id], check=False)
     notify(f"Dismissed: {selected}")
 
 
-def main():
-
+def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "ack":
         action = "Acknowledge"
     else:
