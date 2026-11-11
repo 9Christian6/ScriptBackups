@@ -1,0 +1,37 @@
+#!/bin/bash
+# Extract selected archives beside their originals, one directory per archive.
+status=0
+for archive do
+    if [[ ! -f "$archive" ]]; then
+        printf 'Not an archive file: %s\n' "$archive" >&2
+        status=1
+        continue
+    fi
+
+    name=${archive##*/}
+    shopt -s nocasematch
+    case "$name" in
+        *.tar.*) stem=${name%.*}; stem=${stem%.*}; tar_archive=1 ;;
+        *.tar|*.tgz|*.tbz|*.tbz2|*.txz|*.tzst|*.tlz|*.taz)
+            stem=${name%.*}; tar_archive=1 ;;
+        *) stem=${name%.*}; tar_archive=0 ;;
+    esac
+    # Extensionless and hidden archive names must still get a distinct folder.
+    if [[ -z "$stem" || "$stem" == "$name" ]]; then
+        stem="$name.extracted"
+    fi
+    destination="$(dirname -- "$archive")/$stem"
+
+    # Do not mix extracted files into an existing directory.
+    if ! mkdir -- "$destination"; then
+        status=1
+        continue
+    fi
+
+    if (( tar_archive )); then
+        tar -xf "$archive" -C "$destination" || status=1
+    else
+        7z x "-o$destination" -- "$archive" || status=1
+    fi
+done
+exit "$status"
