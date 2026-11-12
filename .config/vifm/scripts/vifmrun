@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -u
+
+export VIFM_PREVIEW_BINARY="${OPT:-$HOME/Opt}/vifm/vifm"
+if [[ ! -x "$VIFM_PREVIEW_BINARY" ]]; then
+  printf "vifm isn't installed at %s\n" "$VIFM_PREVIEW_BINARY" >&2
+  exit 1
+fi
+
+preview_scripts="$(cd -- "$(dirname -- "$0")" && pwd)"
+export VIFM_PREVIEW_SESSION
+VIFM_PREVIEW_SESSION="$(mktemp -d "${TMPDIR:-/tmp}/vifm-session.XXXXXXXX")" || exit 1
+ueberzug_pid=
+cleanup() {
+  "$preview_scripts/vifm-preview" shutdown
+  if [[ -n "$ueberzug_pid" ]]; then
+    exec 3>&-
+    kill "$ueberzug_pid" 2>/dev/null || true
+    wait "$ueberzug_pid" 2>/dev/null || true
+  fi
+  rm -rf -- "$VIFM_PREVIEW_SESSION"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
+if command -v ueberzug >/dev/null 2>&1; then
+  export FIFO_UEBERZUG="$VIFM_PREVIEW_SESSION/ueberzug"
+  mkfifo -m 600 "$FIFO_UEBERZUG" || exit 1
+  # Opening both ends avoids waiting for a renderer which failed to start.
+  exec 3<>"$FIFO_UEBERZUG"
+  ueberzug layer -s -p json <"$FIFO_UEBERZUG" 3>&- &
+  ueberzug_pid=$!
+fi
+"$VIFM_PREVIEW_BINARY" "$@" 3>&-

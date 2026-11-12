@@ -1,0 +1,29 @@
+This directory is dedicated for user-supplied scripts/executables.
+vifm modifies its PATH environment variable to let user run those
+scripts without specifying full path.  All subdirectories are added
+as well.  File in a subdirectory overrules file with the same name
+in parent directories.  Restart might be needed to recognize files
+in newly created or renamed subdirectories.
+Asynchronous previews
+---------------------
+vifmrc sets previewprg to vifm-preview for every file type. The foreground
+command only starts a worker or displays its result; file reads, MIME detection,
+archive listing and thumbnail conversion run outside vifm. A loading message
+remains until the worker asks this vifm instance to redraw via its server name.
+The 90 MiB input limit is retained; converter runtime is limited to 45 seconds,
+text output to 128 KiB, and directory listings to 256 entries.
+
+Each request owns a private temporary directory and process group. Navigation
+cancels unfinished requests, kills converters and their descendants, then removes
+all request files. Completed output survives redraws and is removed on the next
+selection or when vifmrun exits. No incomplete thumbnails enter a shared cache.
+vifmrun isolates sessions, closes workers on exit, and keeps FIFO operations
+nonblocking. A watchdog cleans up workers if vifm exits unexpectedly or was
+launched directly. Client-server support is required for automatic refresh.
+
+Static images use ueberzug; GIF/WebP and short video animations use kitten icat
+when a terminal is available. Missing converters produce an unavailable message.
+Existing fileviewer commands can still invoke the vifmimg compatibility wrapper.
+
+Run regression checks with:
+    python3 -B -m unittest discover -s tests -v

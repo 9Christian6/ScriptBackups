@@ -442,6 +442,11 @@ set classify+=' ::*.doc,,*.docx::, ::*.xls,,*.xls[mx]::, ::*.pptx,,*.pp
 " ueberzug removes its own overlay; a full-screen erase causes flicker.
 set previewoptions=graphicsdelay:50000
 
+" Conversion runs in disposable workers. %pu picks up results on redraw;
+" %pc cancels unfinished requests when leaving a preview.
+let $VIFM_PREVIEW_SERVER = v:servername
+set previewprg='vifm-preview show %px %py %pw %ph %c %pu %pc vifm-preview clear'
+
 " Syntax highlighting in preview
 "
 " Explicitly set highlight type for some extensions
