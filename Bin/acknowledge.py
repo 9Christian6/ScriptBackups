@@ -108,7 +108,13 @@ def acknowledge_event() -> None:
     event_id, selected = event
 
     if event_id == "1":
-        subprocess.run(["/home/christian/Bin/Tagebuch.py"], check=False)
+        # The journal records the date selected in its own rofi menu.
+        result = subprocess.run(["/home/christian/Bin/Tagebuch.py"], check=False)
+        if result.returncode == 0:
+            notify(f"Acknowledged: {selected}")
+        elif result.returncode != 2:
+            notify("Could not open journal; reminder was not acknowledged")
+        return
     elif event_id == "3":
         subprocess.run(["/home/christian/Bin/Dankbarkeit.py"], check=False)
     elif event_id == "5":
@@ -200,9 +206,9 @@ def reset_event() -> None:
         name, _, _ = details.rsplit(maxsplit=2)
         events[event_id] = name
 
-    selected = select_option([
-        f"{event_id} {name}" for event_id, name in events.items()
-    ])
+    selected = select_option(
+        [f"{event_id} {name}" for event_id, name in events.items()]
+    )
     if not selected:
         return
 

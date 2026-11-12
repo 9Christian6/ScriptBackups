@@ -1,25 +1,19 @@
 #!/bin/python3
-import datetime
+"""Show the journal reminder and missing-day count in Polybar."""
 
-reminder_log_path = '/home/christian/Documents/TagebuchErinnerung.txt'
-
-def get_first_line():
-    with open(reminder_log_path) as reminder_file:
-        return datetime.datetime.strptime(reminder_file.readline().rstrip(), '%d.%m.%Y') 
+from reminderScript import JOURNAL_EVENT_ID, database, get_display_string
 
 
-def main():
-    first_line = get_first_line()
-    dateDiff = datetime.datetime.today() - first_line
-    if dateDiff.days > 1:
-        print("Tagebuch")
-        exit()
-    if dateDiff.days == 1:
-        if datetime.datetime.now().hour >= 18:
-            print("Tagebuch")
-            exit()
-    print("")
-    exit()
+def main() -> None:
+    with database() as connection:
+        reminder = connection.execute(
+            """SELECT events.id, 'Tagebuch' AS message
+               FROM events JOIN event_state ON events.id = event_state.event_id
+               WHERE events.id = ? AND events.enabled = 1 AND event_state.pending = 1""",
+            (JOURNAL_EVENT_ID,),
+        ).fetchone()
+    message = get_display_string(reminder, polybar_format=True) if reminder else None
+    print(message or "")
 
 
 if __name__ == "__main__":
