@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""Bounded foreground requests; disposable, cancellable background previews."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+
+SCRIPT = str(Path(__file__).resolve())
+MAX_BYTES = 90 * 1024 * 1024
+MAX_TEXT = 128 * 1024
+KITTY = shutil.which("kitten") or str(Path.home() / "Opt/kitty/bin/kitten")
+
+
+def state_root():
+    # vifmrc supplies a unique server name even when vifmrun isn't used.
+    import hashlib
+    session = os.environ.get("VIFM_PREVIEW_SESSION", "") or os.environ.get(
+        "VIFM_PREVIEW_SERVER", str(os.getppid()))
+    key = hashlib.sha256(session.encode()).hexdigest()[:24]
+    base = os.environ.get("VIFM_PREVIEW_SESSION")
+    root = (Path(base) / "preview" if base else
+            Path(tempfile.gettempdir()) / f"vifm-preview-{os.getuid()}-{key}")
+    root.mkdir(mode=0o700, exist_ok=True)
+    if root.is_symlink() or root.stat().st_uid != os.getuid():
+        raise RuntimeError("Unsafe preview state directory")
+    return root
+
+
+def read_state(root):
+    try:
+        return json.loads((root / "state.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def write_state(root, state):
+    tmp = root / "state.tmp"
+    tmp.write_text(json.dumps(state))
+    tmp.replace(root / "state.json")
+
+
+def stop_group(pid):
+    if pid:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def fifo_message(message):
+    fifo = os.environ.get("FIFO_UEBERZUG")
+    if not fifo:
+        return False
+    try:
+        fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            os.write(fd, (json.dumps(message) + "\n").encode())
+        finally:
+            os.close(fd)
+        return True
+    except OSError:
+        return False
+
+
+def detach(args):
+    return subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True, close_fds=True)
+
+
+def clear_display(state):
+    fifo_message(dict(action="remove", identifier="vifm-preview"))
+    if state and state.get("display_pid"):
+        stop_group(state.pop("display_pid"))
+        tty = state.get("tty")
+        if tty:
+            # Kitty's delete-all command needs no query or kitten process.
+            try:
+                fd = os.open(tty, os.O_WRONLY | os.O_NONBLOCK | os.O_NOCTTY)
+                try:
+                    os.write(fd, b"\x1b_Ga=d,d=A;\x1b\\")
+                finally:
+                    os.close(fd)
+            except OSError:
+                pass
+
+
+def discard(root, state):
+    if state:
+        stop_group(state.get("pid"))
+        shutil.rmtree(state["directory"], ignore_errors=True)
+    (root / "state.json").unlink(missing_ok=True)
+
+
+def find_tty():
+    pid = os.getpid()
+    while pid > 1:
+        for fd in (1, 2, 0):
+            try:
+                path = os.readlink(f"/proc/{pid}/fd/{fd}")
+                if path.startswith(("/dev/pts/", "/dev/tty")):
+                    return path
+            except OSError:
+                pass
+        try:
+            data = Path(f"/proc/{pid}/status").read_text()
+            pid = int(next(line.split()[1] for line in data.splitlines()
+                           if line.startswith("PPid:")))
+        except (OSError, StopIteration):
+            break
+
+
+def vifm_owner():
+    """Identify the instance so direct launches also release workers on exit."""
+    pid = os.getppid()
+    while pid > 1:
+        try:
+            if Path(os.readlink(f"/proc/{pid}/exe")).name == "vifm":
+                return [pid, Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[19]]
+            data = Path(f"/proc/{pid}/status").read_text()
+            pid = int(next(line.split()[1] for line in data.splitlines()
+                           if line.startswith("PPid:")))
+        except (OSError, StopIteration):
+            break
+
+
+def owner_alive(owner):
+    if not owner:
+        return True
+    try:
+        return Path(f"/proc/{owner[0]}/stat").read_text().split(") ", 1)[1].split()[19] == owner[1]
+    except OSError:
+        return False
+
+
+def run(args, output=None):
+    # Workers and all converters share a process group, including grandchildren.
+    with open(output or os.devnull, "wb") as target:
+        subprocess.run(args, stdin=subprocess.DEVNULL, stdout=target,
+                       stderr=subprocess.DEVNULL, check=True, timeout=45)
+
+
+def render(path, directory, width, height):
+    if path.is_dir():
+        text = directory / "text"
+        # Avoid a recursive tree walk or sorting an unbounded directory.
+        with os.scandir(path) as entries:
+            import itertools
+            names = [entry.name for entry in itertools.islice(entries, 256)]
+        text.write_text("\n".join(names) + "\n")
+        return dict(text=str(text))
+    suffix = path.suffix.lower()
+    mime = subprocess.check_output(["file", "--brief", "--mime-type", "--", str(path)],
+                                   timeout=5, text=True).strip()
+    image = directory / "preview.jpg"
+    animated = False
+    if suffix == ".svg":
+        image = directory / "preview.png"
+        run(["rsvg-convert", "-w", "1600", "-h", "1600", "--keep-aspect-ratio",
+             "-o", str(image), str(path)])
+    elif suffix == ".pdf":
+        run(["pdftoppm", "-jpeg", "-f", "1", "-singlefile", "-scale-to", "1600",
+             str(path), str(directory / "preview")])
+    elif suffix == ".djvu":
+        image = directory / "preview.tiff"
+        run(["ddjvu", "-format=tiff", "-page=1", str(path), str(image)])
+    elif suffix == ".epub":
+        image = directory / "preview.png"
+        run(["epub-thumbnailer", str(path), str(image), "1024"])
+    elif mime.startswith("video/"):
+        image = directory / "preview.gif"
+        # Bounded dimensions, duration, frame rate and decoder threads.
+        scale = f"scale={min(960, width * 10)}:{min(720, height * 20)}:force_original_aspect_ratio=decrease"
+        run(["ffmpeg", "-v", "error", "-threads", "1", "-i", str(path), "-t", "2",
+             "-filter_complex_threads", "1", "-vf",
+             f"fps=10,{scale},split[a][b];[a]palettegen[p];[b][p]paletteuse",
+             "-loop", "0", str(image)])
+        animated = True
+    elif mime.startswith("image/"):
+        image = path
+        animated = suffix in (".gif", ".webp")
+    elif mime.startswith("audio/"):
+        try:
+            run(["ffmpeg", "-v", "error", "-threads", "1", "-i", str(path),
+                 "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
+                 str(image)])
+            if not image.is_file():
+                raise RuntimeError("No embedded artwork")
+        except (subprocess.SubprocessError, RuntimeError):
+            text = directory / "text"
+            run(["ffprobe", "-v", "error", "-show_format", "-show_streams", str(path)], text)
+            return dict(text=str(text))
+    elif mime.startswith("font/") or suffix in (".ttf", ".otf", ".woff", ".woff2"):
+        run(["fontpreview", "-i", str(path), "-o", str(image)])
+    else:
+        text = directory / "text"
+        commands = {
+            ".zip": ["zip", "-sf", str(path)],
+            ".jar": ["zip", "-sf", str(path)],
+            ".7z": ["7z", "l", str(path)],
+            ".rar": ["unrar", "v", str(path)],
+            ".doc": ["catdoc", str(path)],
+            ".docx": ["docx2txt.pl", str(path), "-"],
+            ".torrent": ["dumptorrent", "-v", str(path)],
+        }
+        command = commands.get(suffix)
+        if mime == "text/troff" or suffix in tuple(f".{i}" for i in range(1, 9)):
+            command = ["man", "-l", str(path)]
+        if suffix in (".tar", ".tgz", ".tbz2", ".txz", ".tzst") or any(
+                str(path).endswith(ext) for ext in (".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst")):
+            command = ["tar", "-taf", str(path)]
+        if command:
+            # Cap converter output on disk as well as what vifm receives.
+            import resource
+            resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_TEXT, MAX_TEXT))
+            try:
+                run(command, text)
+            except subprocess.CalledProcessError:
+                if not text.exists() or not text.stat().st_size:
+                    raise
+        else:
+            with path.open("rb") as source:
+                content = source.read(MAX_TEXT)
+            if b"\0" in content:
+                content = f"Binary file ({mime})\n".encode()
+            text.write_bytes(content)
+        return dict(text=str(text))
+    if not image.is_file() or not image.stat().st_size:
+        raise RuntimeError("No preview produced")
+    return dict(image=str(image), animated=animated)
+
+
+def worker(root, token, path, directory, width, height, owner):
+    # Never inherit a pipe that vifm waits to reach EOF on.
+    # An owner watchdog also covers vifm crashes and direct launches.
+    import threading
+    def watch_owner():
+        while owner_alive(owner):
+            time.sleep(.5)
+        # A helper outside our group must kill writers before deleting output.
+        detach([SCRIPT, "orphan-cleanup", str(root), token, str(directory), str(os.getpgrp())])
+        while True:
+            time.sleep(3600)
+    if owner:
+        threading.Thread(target=watch_owner, daemon=True).start()
+    try:
+        os.nice(10)
+        if not (path.is_dir() or stat.S_ISREG(path.stat().st_mode)):
+            raise RuntimeError("Not a regular file")
+        if path.stat().st_size > MAX_BYTES:
+            raise RuntimeError("File exceeds the 90 MiB preview limit")
+        result = render(path, directory, width, height)
+    except Exception as error:
+        result = dict(error=f"Preview unavailable: {error}")
+    with (root / "lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = read_state(root)
+        if not state or state["token"] != token:
+            return
+        state["result"] = result
+        write_state(root, state)
+    server = os.environ.get("VIFM_PREVIEW_SERVER")
+    binary = os.environ.get("VIFM_PREVIEW_BINARY", str(Path.home() / "Opt/vifm/vifm"))
+    if server:
+        try:
+            subprocess.run([binary, "--server-name", server, "--remote", "+redraw"],
+                           timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    # Retain the group leader until cancellation, avoiding stale PID reuse.
+    while True:
+        time.sleep(3600)
+
+
+def request(root, args):
+    state = read_state(root)
+    if args[0] in ("clear", "shutdown"):
+        clear_display(state)
+        if args[0] == "shutdown" or (state and "result" not in state):
+            discard(root, state)
+        elif state:
+            write_state(root, state)
+        return
+    _, x, y, width, height, filename = args
+    # No filesystem operations on the selected file in the foreground.
+    path = Path(os.path.abspath(filename))
+    key = [str(path), x, y, width, height]
+    if not state or state["key"] != key:
+        clear_display(state)
+        discard(root, state)
+        directory = Path(tempfile.mkdtemp(prefix="request-", dir=root))
+        token = directory.name
+        state = dict(key=key, token=token, directory=str(directory), tty=find_tty())
+        child = detach([SCRIPT, "worker", str(root), token, str(path), str(directory), width, height,
+                        json.dumps(vifm_owner())])
+        state["pid"] = child.pid
+        write_state(root, state)
+    result = state.get("result")
+    if result is None:
+        print("Loading preview…")
+    elif "error" in result:
+        print(result["error"])
+    elif "text" in result:
+        # Strip terminal control bytes from untrusted file/converter output.
+        text = Path(result["text"]).read_bytes()[:MAX_TEXT].decode("utf-8", "replace")
+        print("".join(c for c in text if c in "\n\t" or (c.isprintable())), end="")
+    else:
+        message = dict(action="add", identifier="vifm-preview", x=int(x), y=int(y),
+                       width=int(width), height=int(height), scaler="contain", path=result["image"])
+        if result["animated"] and state.get("tty") and Path(KITTY).is_file():
+            child = detach([SCRIPT, "kitty-draw", state["tty"],
+                            f"{width}x{height}@{x}x{y}", result["image"]])
+            state["display_pid"] = child.pid
+            write_state(root, state)
+        elif not fifo_message(message):
+            print("Image preview requires vifmrun / ueberzug.")
+
+
+def main():
+    args = sys.argv[1:]
+    if args[0] == "orphan-cleanup":
+        root, token, directory, pid = Path(args[1]), args[2], Path(args[3]), int(args[4])
+        stop_group(pid)
+        if root.exists():
+            with (root / "lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                state = read_state(root)
+                if state and state["token"] == token:
+                    clear_display(state)
+                    (root / "state.json").unlink(missing_ok=True)
+        shutil.rmtree(directory, ignore_errors=True)
+    elif args[0] == "worker":
+        worker(Path(args[1]), args[2], Path(args[3]), Path(args[4]), int(args[5]), int(args[6]), json.loads(args[7]))
+    elif args[0] == "kitty-draw":
+        with open(args[1], "r+b", buffering=0) as tty:
+            command = [KITTY, "icat", "--stdin=no", "--silent"]
+            command += ["--transfer-mode=file", "--place", args[2], "--scale-up", "--loop", "-1", args[3]]
+            subprocess.run(command, stdin=tty, stdout=tty, stderr=subprocess.DEVNULL)
+    else:
+        root = state_root()
+        with (root / "lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            request(root, args)
+
+
+if __name__ == "__main__":
+    main()

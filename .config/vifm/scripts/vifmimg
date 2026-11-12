@@ -1,0 +1,9 @@
+#!/bin/sh
+# Compatibility for existing media fileviewer commands.
+case "$1" in
+  clear) exec "$(dirname -- "$0")/vifm-preview" clear ;;
+  draw|svg|video|epub|pdf|djvu|audio|font)
+    shift
+    exec "$(dirname -- "$0")/vifm-preview" show "$@"
+    ;;
+esac
