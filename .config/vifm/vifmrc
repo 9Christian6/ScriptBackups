@@ -440,7 +440,7 @@ set classify+=' ::*.avi,,*.ts,,*.axv,,*.divx,,*.m2v,,*.m4p,,*.m4v,,.mka,,*.mk
 set classify+=' ::*.doc,,*.docx::, ::*.xls,,*.xls[mx]::, ::*.pptx,,*.ppt::'
 
 " ueberzug removes its own overlay; a full-screen erase causes flicker.
-set previewoptions=graphicsdelay:50000
+set previewoptions=graphicsdelay:0
 
 " Conversion runs in disposable workers. %pu picks up results on redraw;
 " %pc cancels unfinished requests when leaving a preview.
