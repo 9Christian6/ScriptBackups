@@ -88,6 +88,14 @@ time.sleep(60)
         self.show(other)
         self.assertFalse(Path(old['directory']).exists())
 
+    def test_navigation_cancels_before_converter_startup(self):
+        marker = self.base / 'converter-started'
+        path = self.converter(f'import pathlib\npathlib.Path({str(marker)!r}).touch()\n')
+        self.assertIn('Loading preview', self.show(path))
+        self.call('clear')
+        time.sleep(.2)
+        self.assertFalse(marker.exists(), 'Navigation should skip conversion during the settle delay')
+
     def test_fifo_with_no_reader_never_blocks(self):
         fifo = self.base / 'fifo'
         os.mkfifo(fifo)

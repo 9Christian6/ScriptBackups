@@ -13,6 +13,13 @@ remains until the worker asks this vifm instance to redraw via its server name.
 The 90 MiB input limit is retained; converter runtime is limited to 45 seconds,
 text output to 128 KiB, and directory listings to 256 entries.
 
+There is no synchronous graphicsdelay: ueberzug manages its own overlay and
+Kitty previews run separately. Workers wait 120 ms before conversion so files
+passed over during keyboard repeat do not start converters or trigger completion
+redraws. The helper uses Ubuntu's standard-library Python without site startup;
+clear requests avoid converter/process-management imports. Refresh uses the
+running vifm executable through /proc, avoiding repeated AppImage startup.
+
 Each request owns a private temporary directory and process group. Navigation
 cancels unfinished requests, kills converters and their descendants, then removes
 all request files. Completed output survives redraws and is removed on the next

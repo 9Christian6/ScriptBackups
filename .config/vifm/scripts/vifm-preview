@@ -1,33 +1,51 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -S
 """Bounded foreground requests; disposable, cancellable background previews."""
 import fcntl
 import json
 import os
 from pathlib import Path
-import shutil
 import signal
 import stat
-import subprocess
 import sys
-import tempfile
 import time
 
 
 SCRIPT = str(Path(__file__).resolve())
 MAX_BYTES = 90 * 1024 * 1024
 MAX_TEXT = 128 * 1024
-KITTY = shutil.which("kitten") or str(Path.home() / "Opt/kitty/bin/kitten")
+
+
+def kitty_binary():
+    import shutil
+    return shutil.which("kitten") or str(Path.home() / "Opt/kitty/bin/kitten")
+
+
+def remove_request(directory):
+    # Converter output is normally a handful of flat files. Avoid importing
+    # shutil (and compression libraries) on every synchronous clear command.
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    import shutil
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                else:
+                    os.unlink(entry.path)
+        os.rmdir(directory)
+    except FileNotFoundError:
+        pass
 
 
 def state_root():
     # vifmrc supplies a unique server name even when vifmrun isn't used.
-    import hashlib
-    session = os.environ.get("VIFM_PREVIEW_SESSION", "") or os.environ.get(
-        "VIFM_PREVIEW_SERVER", str(os.getppid()))
-    key = hashlib.sha256(session.encode()).hexdigest()[:24]
     base = os.environ.get("VIFM_PREVIEW_SESSION")
-    root = (Path(base) / "preview" if base else
-            Path(tempfile.gettempdir()) / f"vifm-preview-{os.getuid()}-{key}")
+    if base:
+        root = Path(base) / "preview"
+    else:
+        import hashlib
+        session = os.environ.get("VIFM_PREVIEW_SERVER") or str(os.getppid())
+        key = hashlib.sha256(session.encode()).hexdigest()[:24]
+        root = Path(os.environ.get("TMPDIR", "/tmp")) / f"vifm-preview-{os.getuid()}-{key}"
     root.mkdir(mode=0o700, exist_ok=True)
     if root.is_symlink() or root.stat().st_uid != os.getuid():
         raise RuntimeError("Unsafe preview state directory")
@@ -71,6 +89,7 @@ def fifo_message(message):
 
 
 def detach(args):
+    import subprocess
     return subprocess.Popen(args, stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True, close_fds=True)
@@ -96,7 +115,7 @@ def clear_display(state):
 def discard(root, state):
     if state:
         stop_group(state.get("pid"))
-        shutil.rmtree(state["directory"], ignore_errors=True)
+        remove_request(state["directory"])
     (root / "state.json").unlink(missing_ok=True)
 
 
@@ -142,6 +161,7 @@ def owner_alive(owner):
 
 
 def run(args, output=None):
+    import subprocess
     # Workers and all converters share a process group, including grandchildren.
     with open(output or os.devnull, "wb") as target:
         subprocess.run(args, stdin=subprocess.DEVNULL, stdout=target,
@@ -149,6 +169,7 @@ def run(args, output=None):
 
 
 def render(path, directory, width, height):
+    import subprocess
     if path.is_dir():
         text = directory / "text"
         # Avoid a recursive tree walk or sorting an unbounded directory.
@@ -239,6 +260,7 @@ def render(path, directory, width, height):
 
 
 def worker(root, token, path, directory, width, height, owner):
+    import subprocess
     # Never inherit a pipe that vifm waits to reach EOF on.
     # An owner watchdog also covers vifm crashes and direct launches.
     import threading
@@ -251,6 +273,9 @@ def worker(root, token, path, directory, width, height, owner):
             time.sleep(3600)
     if owner:
         threading.Thread(target=watch_owner, daemon=True).start()
+    # Don't launch a converter or request another redraw for files merely
+    # passed over during keyboard repeat. Clear still cancels immediately.
+    time.sleep(.12)
     try:
         os.nice(10)
         if not (path.is_dir() or stat.S_ISREG(path.stat().st_mode)):
@@ -268,7 +293,9 @@ def worker(root, token, path, directory, width, height, owner):
         state["result"] = result
         write_state(root, state)
     server = os.environ.get("VIFM_PREVIEW_SERVER")
-    binary = os.environ.get("VIFM_PREVIEW_BINARY", str(Path.home() / "Opt/vifm/vifm"))
+    # Reuse the running executable, avoiding an AppImage mount on each refresh.
+    binary = (f"/proc/{owner[0]}/exe" if owner else
+              os.environ.get("VIFM_PREVIEW_BINARY", str(Path.home() / "Opt/vifm/vifm")))
     if server:
         try:
             subprocess.run([binary, "--server-name", server, "--remote", "+redraw"],
@@ -294,6 +321,7 @@ def request(root, args):
     path = Path(os.path.abspath(filename))
     key = [str(path), x, y, width, height]
     if not state or state["key"] != key:
+        import tempfile
         clear_display(state)
         discard(root, state)
         directory = Path(tempfile.mkdtemp(prefix="request-", dir=root))
@@ -315,7 +343,7 @@ def request(root, args):
     else:
         message = dict(action="add", identifier="vifm-preview", x=int(x), y=int(y),
                        width=int(width), height=int(height), scaler="contain", path=result["image"])
-        if result["animated"] and state.get("tty") and Path(KITTY).is_file():
+        if result["animated"] and state.get("tty") and Path(kitty_binary()).is_file():
             child = detach([SCRIPT, "kitty-draw", state["tty"],
                             f"{width}x{height}@{x}x{y}", result["image"]])
             state["display_pid"] = child.pid
@@ -336,12 +364,13 @@ def main():
                 if state and state["token"] == token:
                     clear_display(state)
                     (root / "state.json").unlink(missing_ok=True)
-        shutil.rmtree(directory, ignore_errors=True)
+        remove_request(directory)
     elif args[0] == "worker":
         worker(Path(args[1]), args[2], Path(args[3]), Path(args[4]), int(args[5]), int(args[6]), json.loads(args[7]))
     elif args[0] == "kitty-draw":
+        import subprocess
         with open(args[1], "r+b", buffering=0) as tty:
-            command = [KITTY, "icat", "--stdin=no", "--silent"]
+            command = [kitty_binary(), "icat", "--stdin=no", "--silent"]
             command += ["--transfer-mode=file", "--place", args[2], "--scale-up", "--loop", "-1", args[3]]
             subprocess.run(command, stdin=tty, stdout=tty, stderr=subprocess.DEVNULL)
     else:
