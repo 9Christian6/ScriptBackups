@@ -1,6 +1,11 @@
 #!/home/christian/Opt/PythonEnvs/myVirtualEnv/bin/python3.12
 import os
+import select
+import signal
+import time
 import subprocess
+import sys
+from SoundSinkSwitcher import sinks_now, load_config, settings, display_name, pactl, CONFIG
 
 # Configuration
 BIN = os.environ.get('BIN', os.path.expanduser('~') + '/Bin')
@@ -12,46 +17,28 @@ MUTED_COLOR = "#666666"
 FILL_CHAR = "─"
 INDICATOR = "|"
 
-def get_icon_prefix():
-    """Run the icon script if it exists and is executable."""
-    if os.path.isfile(ICON_SCRIPT) and os.access(ICON_SCRIPT, os.X_OK):
-        try:
-            result = subprocess.run(
-                    [ICON_SCRIPT],
-                    capture_output=True,
-                    text=True,
-                    )
-            icon = result.stdout.strip()
-            icon = icon + ' '
-            return icon
-        except Exception as e:
-            print(e)
-    return ""
+def get_audio_info():
+    """Read volume, mute and label from one consistent sink snapshot."""
+    sinks = sinks_now()
+    current = pactl('get-default-sink')
+    sink = next((sink for sink in sinks if sink['name'] == current), None)
+    if sink is None:
+        return '󰓃', 0, False
+    prefix = '󰓃'
+    try:
+        config = load_config(sinks)
+        options = settings(config, sink)
+        if options.get('enabled', True):
+            prefix = options.get('icon', '󰓃')
+            if options.get('show_name', False):
+                prefix += ' ' + display_name(config, sink)
+    except (OSError, ValueError) as error:
+        print(f'Sound sink configuration: {error}', file=sys.stderr)
+    channels = sink.get('volume', {}).values()
+    percentages = [float(channel['value_percent'].rstrip('%')) for channel in channels]
+    volume = max(0, min(100, round(sum(percentages) / len(percentages)))) if percentages else 0
+    return prefix.replace('%', '%%'), volume, sink.get('mute', False)
 
-def get_volume_info():
-    """Retrieve volume and mute status using pamixer or pactl."""
-    volume = 0
-    mute = False
-    vol_proc = subprocess.run( ['pactl', 'get-sink-volume', '@DEFAULT_SINK@'], capture_output=True, text=True)
-    mute_proc = subprocess.run( ['pactl', 'get-sink-mute', '@DEFAULT_SINK@'], capture_output=True, text=True)
-
-    if vol_proc.returncode == 0:
-        for token in vol_proc.stdout.split():
-            if token.endswith('%'):
-                volume = int(token.replace('%', ''))
-                break
-
-    if mute_proc.returncode == 0:
-        parts = mute_proc.stdout.strip().split()
-        if len(parts) >= 2:
-            mute = parts[1].lower() == 'yes'
-
-    if volume < 0:
-        volume = 0
-    if volume > 100:
-        volume = 100
-
-    return volume, mute
 
 def get_gradient_color(index, bar_width):
     """
@@ -112,20 +99,100 @@ def build_bar(volume, mute):
     bar = f"{filled_part}%{{F-}}{INDICATOR}{empty_part}"
     return bar
 
-def main():
-    prefix = get_icon_prefix()
+def render():
+    prefix, volume, mute = get_audio_info()
     if prefix:
         prefix = f"{prefix} "
-
-    volume, mute = get_volume_info()
     bar = build_bar(volume, mute)
-
     if mute:
-        # Muted output format
-        print(f"%{{F{MUTED_COLOR}}}{prefix}{volume}% %{{F{MUTED_COLOR}}}{bar}%{{F-}}{SUFFIX}")
-    else:
-        # Normal output format
-        print(f"{prefix}%{{F#FFFFFF}}{volume}% %{{F-}}{bar}{SUFFIX}%{{F-}}")
+        return f"%{{F{MUTED_COLOR}}}{prefix}{volume}% %{{F{MUTED_COLOR}}}{bar}%{{F-}}{SUFFIX}"
+    return f"{prefix}%{{F#FFFFFF}}{volume}% %{{F-}}{bar}{SUFFIX}%{{F-}}"
+
+
+def watch():
+    """Stream updates on sink/server events, without a polling delay."""
+    subscriber = None
+    last_output = None
+
+    def stop(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    def config_stamp():
+        try:
+            return CONFIG.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def emit():
+        nonlocal last_output
+        try:
+            output = render()
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+            print(f'Audio update failed: {error}', file=sys.stderr)
+            output = '󰓃 Audio unavailable |'
+        if output != last_output:
+            print(output, flush=True)
+            last_output = output
+
+    try:
+        while True:
+            try:
+                # Subscribe before the initial snapshot so changes during startup
+                # are queued rather than missed.
+                subscriber = subprocess.Popen(
+                    ['pactl', 'subscribe'], stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, env={**os.environ, 'LC_ALL': 'C'})
+                emit()
+                stamp = config_stamp()
+                pending = b''
+                while True:
+                    ready, _, _ = select.select([subscriber.stdout], [], [], 1)
+                    changed = False
+                    if ready:
+                        data = os.read(subscriber.stdout.fileno(), 65536)
+                        if not data:
+                            break
+                        pending += data
+                        lines = pending.split(b'\n')
+                        pending = lines.pop()
+                        changed = any(any(kind in line for kind in
+                                          (b' on sink #', b' on server #', b' on card #'))
+                                      for line in lines)
+                    new_stamp = config_stamp()
+                    if changed or new_stamp != stamp:
+                        emit()
+                        stamp = config_stamp()
+            except OSError as error:
+                print(f'Audio subscription failed: {error}', file=sys.stderr)
+            finally:
+                if subscriber is not None:
+                    if subscriber.poll() is None:
+                        subscriber.terminate()
+                    try:
+                        subscriber.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        subscriber.kill()
+                        subscriber.wait()
+                    subscriber = None
+            time.sleep(1)
+    finally:
+        if subscriber is not None:
+            subscriber.terminate()
+            try:
+                subscriber.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                subscriber.kill()
+                subscriber.wait()
+
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ['watch']:
+        watch()
+    elif len(sys.argv) > 1:
+        from SoundSinkSwitcher import main as switcher_main
+        sys.exit(switcher_main())
+    else:
+        print(render())
