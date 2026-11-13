@@ -6,7 +6,11 @@ in parent directories.  Restart might be needed to recognize files
 in newly created or renamed subdirectories.
 Asynchronous previews
 ---------------------
-vifmrc sets previewprg to vifm-preview for every file type. The foreground
+vifmrc registers vifm-preview as the first matching fileviewer for every file
+type. Text uses a plain viewer without graphical coordinates or cleanup;
+only image/media viewers use %px, %py and %pc. A global graphical previewprg
+would make vifm blank even text previews before every redraw.
+The foreground
 command only starts a worker or displays its result; file reads, MIME detection,
 archive listing and thumbnail conversion run outside vifm. A loading message
 remains until the worker asks this vifm instance to redraw via its server name.
@@ -24,6 +28,11 @@ Each request owns a private temporary directory and process group. Navigation
 cancels unfinished requests, kills converters and their descendants, then removes
 all request files. Completed output survives redraws and is removed on the next
 selection or when vifmrun exits. No incomplete thumbnails enter a shared cache.
+Clear callbacks remove graphics immediately, before vifm repaints the pane as
+text, a directory list, or a dialog. Only cancellation of unfinished conversion
+has a 150 ms grace period, so a matching redraw can reuse the worker/result and
+place the image again. Repeated shows without a clear reuse the image placement
+or Kitty renderer; changing selection and shutting down clean up immediately.
 vifmrun isolates sessions, closes workers on exit, and keeps FIFO operations
 nonblocking. A watchdog cleans up workers if vifm exits unexpectedly or was
 launched directly. Client-server support is required for automatic refresh.

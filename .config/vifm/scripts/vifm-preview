@@ -96,6 +96,8 @@ def detach(args):
 
 
 def clear_display(state):
+    if state:
+        state.pop("displayed", None)
     fifo_message(dict(action="remove", identifier="vifm-preview"))
     if state and state.get("display_pid"):
         stop_group(state.pop("display_pid"))
@@ -309,12 +311,31 @@ def worker(root, token, path, directory, width, height, owner):
 
 def request(root, args):
     state = read_state(root)
-    if args[0] in ("clear", "shutdown"):
-        clear_display(state)
-        if args[0] == "shutdown" or (state and "result" not in state):
+    if args[0] == "expire-clear":
+        if not state or state.get("clear_token") != args[1]:
+            return
+        if "result" not in state:
             discard(root, state)
-        elif state:
+        else:
+            state.pop("clear_token", None)
             write_state(root, state)
+        return
+    if args[0] in ("clear", "shutdown"):
+        if args[0] == "clear":
+            # The pane may become text, a directory list, or a dialog as soon
+            # as this callback returns. Never leave graphics over that repaint.
+            clear_display(state)
+            if state and "clear_token" not in state:
+                # Only defer cancelling conversion: a matching show can reuse
+                # its worker/result, but must place the image again.
+                token = str(time.monotonic_ns())
+                state["clear_token"] = token
+                detach([SCRIPT, "delayed-clear", str(root), token])
+            if state:
+                write_state(root, state)
+            return
+        clear_display(state)
+        discard(root, state)
         return
     _, x, y, width, height, filename = args
     # No filesystem operations on the selected file in the foreground.
@@ -331,6 +352,9 @@ def request(root, args):
                         json.dumps(vifm_owner())])
         state["pid"] = child.pid
         write_state(root, state)
+    if "clear_token" in state:
+        state.pop("clear_token")
+        write_state(root, state)
     result = state.get("result")
     if result is None:
         print("Loading preview…")
@@ -341,19 +365,35 @@ def request(root, args):
         text = Path(result["text"]).read_bytes()[:MAX_TEXT].decode("utf-8", "replace")
         print("".join(c for c in text if c in "\n\t" or (c.isprintable())), end="")
     else:
+        if state.get("displayed"):
+            return
         message = dict(action="add", identifier="vifm-preview", x=int(x), y=int(y),
                        width=int(width), height=int(height), scaler="contain", path=result["image"])
         if result["animated"] and state.get("tty") and Path(kitty_binary()).is_file():
             child = detach([SCRIPT, "kitty-draw", state["tty"],
                             f"{width}x{height}@{x}x{y}", result["image"]])
             state["display_pid"] = child.pid
+            state["displayed"] = True
             write_state(root, state)
-        elif not fifo_message(message):
+        elif fifo_message(message):
+            state["displayed"] = True
+            write_state(root, state)
+        else:
             print("Image preview requires vifmrun / ueberzug.")
 
 
 def main():
     args = sys.argv[1:]
+    if args[0] == "delayed-clear":
+        time.sleep(.15)
+        root = Path(args[1])
+        try:
+            with (root / "lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                request(root, ["expire-clear", args[2]])
+        except FileNotFoundError:
+            pass  # Session shutdown already removed its state.
+        return
     if args[0] == "orphan-cleanup":
         root, token, directory, pid = Path(args[1]), args[2], Path(args[3]), int(args[4])
         stop_group(pid)
