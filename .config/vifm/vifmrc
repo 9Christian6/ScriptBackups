@@ -501,6 +501,11 @@ set vifminfo=dhistory,savedirs,chistory,state,tui,shistory,
 "
 set viewcolumns=-{name}..,20{}.
 
+" Calculate recursive directory sizes on entry (ga reuses cached sizes).
+" Select all entries without moving the cursor, then clear the selection.
+" Large directory trees can take time to scan; gA forces a fresh calculation.
+autocmd DirEnter * %select | normal! ga | nohlsearch
+
 " Filter-out build and temporary files
 "
 " filter! {*.lo,*.o,*.d,*.class,*.pyc,*.pyo,.*~}
