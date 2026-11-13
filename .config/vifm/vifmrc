@@ -160,6 +160,14 @@ command! unzip bash "$VIFM/scripts/unpack-archives" %f:p
 " The command macros like %f, %F, %d, %D may be used in the commands.
 " The %a macro is ignored.  To use a % you must put %%.
 
+" First matching viewer wins. These asynchronous rules take precedence over
+" the older viewer examples below. Only graphics need coordinates and cleanup:
+" using %px and %py for text makes vifm blank the pane before every redraw.
+fileviewer <image/*>,<video/*>,<audio/*>,<font/*>,{*.pdf,*.djvu,*.epub,*.svg,*.ttf,*.otf,*.woff,*.woff2}
+    \ vifm-preview show %px %py %pw %ph %c %pu
+    \ %pc vifm-preview clear
+fileviewer * vifm-preview show 0 0 %pw %ph %c %pu
+
 " For automated FUSE mounts, you must register an extension with :file[x]type
 " in one of following formats:
 "
@@ -442,10 +450,10 @@ set classify+=' ::*.doc,,*.docx::, ::*.xls,,*.xls[mx]::, ::*.pptx,,*.pp
 " ueberzug removes its own overlay; a full-screen erase causes flicker.
 set previewoptions=graphicsdelay:0
 
-" Conversion runs in disposable workers. %pu picks up results on redraw;
-" %pc cancels unfinished requests when leaving a preview.
+" Conversion runs in disposable workers. %pu picks up results on redraw.
+" Use the fileviewer rules above so text is not treated as graphical output.
 let $VIFM_PREVIEW_SERVER = v:servername
-set previewprg='vifm-preview show %px %py %pw %ph %c %pu %pc vifm-preview clear'
+set previewprg=
 
 " Syntax highlighting in preview
 "
