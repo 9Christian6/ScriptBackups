@@ -149,22 +149,105 @@ def snapshot():
     return sinks, config, current, target
 
 
+def pipewire_command(*args):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=3)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or f'{args[0]} failed')
+    return result.stdout
+
+
+def move_locked_stream(stream, target):
+    """Relink a PipeWire DONT_MOVE stream (e.g. Zoom) without restarting it.
+
+    PipeWire's Pulse server rejects move-sink-input for node.dont-reconnect.
+    WirePlumber also ignores target metadata for these streams. Match DSP
+    channels explicitly; never guess a channel map or touch capture streams.
+    """
+    objects = json.loads(pipewire_command('pw-dump'))
+    nodes = {obj['id']: obj['info']['props'] for obj in objects
+             if obj['type'] == 'PipeWire:Interface:Node'}
+    serial = stream['properties'].get('object.serial')
+    source_id = next((index for index, props in nodes.items()
+                      if serial is not None and str(props.get('object.serial')) == str(serial)
+                      and props.get('media.class') == 'Stream/Output/Audio'), None)
+    target_id = next((index for index, props in nodes.items()
+                      if props.get('node.name') == target['name']
+                      and props.get('media.class') == 'Audio/Sink'), None)
+    if source_id is None or target_id is None:
+        raise RuntimeError('Playback stream or destination disappeared')
+    ports = [obj for obj in objects if obj['type'] == 'PipeWire:Interface:Port']
+
+    def channels(node_id, direction):
+        result = {}
+        for port in ports:
+            props = port['info']['props']
+            if str(props.get('node.id')) != str(node_id) or props.get('port.direction') != direction:
+                continue
+            channel = props.get('audio.channel')
+            if not channel or channel in result:
+                raise RuntimeError('Cannot safely map playback channels')
+            result[channel] = port['id']
+        return result
+
+    outputs, inputs = channels(source_id, 'out'), channels(target_id, 'in')
+    # ALSA Pro Audio exposes stereo HDMI as AUX0/AUX1 instead of FL/FR.
+    if outputs.keys() == {'FL', 'FR'} and inputs.keys() == {'AUX0', 'AUX1'}:
+        inputs = {'FL': inputs['AUX0'], 'FR': inputs['AUX1']}
+    elif outputs.keys() == {'AUX0', 'AUX1'} and inputs.keys() == {'FL', 'FR'}:
+        inputs = {'AUX0': inputs['FL'], 'AUX1': inputs['FR']}
+    if not outputs or not outputs.keys() <= inputs.keys():
+        raise RuntimeError('Destination does not have matching playback channels')
+    links = [obj['info'] for obj in objects
+             if obj['type'] == 'PipeWire:Interface:Link'
+             and obj['info']['output-node-id'] == source_id
+             and nodes.get(obj['info']['input-node-id'], {}).get('media.class') == 'Audio/Sink']
+    existing = {(link['output-port-id'], link['input-port-id']) for link in links}
+    wanted = {(output, inputs[channel]) for channel, output in outputs.items()}
+    added = []
+    try:
+        # Keep the old route until every new channel has been connected.
+        for output, input_port in sorted(wanted - existing):
+            pipewire_command('pw-link', str(output), str(input_port))
+            added.append((output, input_port))
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        for output, input_port in added:
+            try:
+                pipewire_command('pw-link', '-d', str(output), str(input_port))
+            except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                pass
+        raise
+    for output, input_port in sorted(existing - wanted):
+        pipewire_command('pw-link', '-d', str(output), str(input_port))
+
+
+def move_stream(stream, target):
+    try:
+        pactl('move-sink-input', str(stream['index']), target['name'])
+    except RuntimeError:
+        if str(stream.get('properties', {}).get('node.dont-reconnect')).lower() != 'true':
+            raise
+        move_locked_stream(stream, target)
+
+
 def cycle():
     sinks, config, current, target = snapshot()
     if target is None:
         raise RuntimeError('No connected audio sinks available')
     if target['name'] == current:
         print(f'Only available sink: {display_name(config, target)}')
-        return
     fresh = next((sink for sink in sinks_now() if sink['name'] == target['name']), None)
     if fresh is None or not available(fresh, config):
         raise RuntimeError('The next sink disconnected; please try again')
     pactl('set-default-sink', target['name'])
+    failures = []
     for stream in json.loads(pactl('--format=json', 'list', 'sink-inputs')):
         try:
-            pactl('move-sink-input', str(stream['index']), target['name'])
-        except RuntimeError as error:
-            print(f'Could not move an audio stream: {error}', file=sys.stderr)
+            move_stream(stream, target)
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+            label = stream.get('properties', {}).get('application.name', str(stream['index']))
+            failures.append(f'{label}: {error}')
+    if failures:
+        raise RuntimeError('Default sink changed, but could not move ' + '; '.join(failures))
     print(f'Default sink set to: {display_name(config, target)}')
 
 
