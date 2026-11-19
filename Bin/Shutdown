@@ -7,15 +7,6 @@ Reboot\0icon\x1fsystem-reboot-symbolic\0Reboot\n\
 Lock\0icon\x1fsystem-lock-screen-symbolic\0Lock\n\
 Logout\0icon\x1fsystem-log-out-symbolic\0Logout" \
 | rofi -dmenu -i -no-custom -theme popup.rasi -theme-str ' listview { lines: 5; dynamic: false; }')
-#| rofi -dmenu -no-custom -show-icons \
-#  -theme-str '
-#    inputbar { enabled: false; }
-#    listview { lines: 5; }
-#    element-icon { size: 1.3em; padding: 0 8px 0 0; color: #ffffff; }
-#  ' \
-#  -yoffset -27 -i -location 5 -l 5 -len 50 -p "Power" \
-#  -theme-str '#window { width: 12%; }' \
-#  -icon-theme "Papirus-Dark-Symbolic")
 if [[ $chosen = "Shutdown" ]]; then
 	systemctl poweroff
 elif [[ $chosen = "Reboot" ]]; then
