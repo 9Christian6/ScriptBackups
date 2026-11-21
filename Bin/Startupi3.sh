@@ -1,18 +1,17 @@
 #!/bin/bash	
-# Clear urgency while autostart applications load; normal urgency resumes after 90s.
-/usr/bin/python3 /home/christian/Bin/clearStartupUrgency.py &
-exec /home/christian/Bin/StartWorkspaceHistory.sh&
-exec /home/christian/Bin/StartSocials.sh&
-exec /home/christian/Bin/StartupTerminali3.sh&
-exec spotify&
-# exec /home/christian/Bin/Soundcloud.sh&
-exec /home/christian/Bin/NextcloudBraveLogin.py --hizmail &
-exec /home/christian/Bin/NextcloudBraveLogin.py --protonmail &
-exec thunderbird&
+/home/christian/Bin/power-dim.sh &
+/home/christian/Bin/StartSocials.sh &
+/home/christian/Bin/StartupTerminali3.sh &
+spotify &
+/home/christian/Bin/Mails &
+mails_pid=$!
+#exec /home/christian/Bin/Calendar.sh&
 
-exec /snap/bin/discord&
-# exec /usr/bin/nextcloud --background&
-# exec /home/christian/Bin/Mails.sh&
-# exec /home/christian/Bin/NextcloudBraveLogin.py --calendar &
-# exec /home/christian/Bin/NextcloudBraveLogin.py --photos &
-# exec /home/christian/Bin/NextcloudBraveLogin.py --tasks &
+wait "$mails_pid"
+
+for window_id in $(wmctrl -l | awk '{print $1}'); do
+  wmctrl -i -r "$window_id" -b remove,demands_attention >/dev/null 2>&1
+done
+
+i3-msg 'workspace number 1' >/dev/null 2>&1
+

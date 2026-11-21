@@ -1,14 +1,68 @@
 #!/usr/bin/env sh
 
-#terminate already running bar instances
-killall -q polybar
+POLYBAR=/home/christian/Opt/polybar/build/bin/polybar
+POLL_INTERVAL=3
 
-#wait until the processes have shut down
-while pgrep -u $UID -x polybar >/dev/null; do
-sleep 1; done
+# Only include outputs that are connected and currently have an active mode.
+active_monitors() {
+    xrandr --query | awk '
+        $2 == "connected" {
+            for (i = 3; i <= NF; i++) {
+                if ($i ~ /^[0-9]+x[0-9]+[+-][0-9]+[+-][0-9]+$/) {
+                    print $1
+                    break
+                }
+            }
+        }
+    '
+}
 
-#launch bar1 and bar2 and bar3
-# polybar -r left & polybar -r right &
-/home/christian/Opt/polybar/build/bin/polybar -r left & /home/christian/Opt/polybar/build/bin/polybar -r right &
-# polybar -r rightTV &
+start_bars() {
+    monitors=$1
+    internal=
 
+    for monitor in $monitors; do
+        case "$monitor" in
+            eDP*|LVDS*)
+                internal=$monitor
+                break
+                ;;
+        esac
+    done
+
+    # Keep a bar on the built-in laptop panel. If this machine has no
+    # built-in panel, use its first active output as the primary bar.
+    if [ -z "$internal" ]; then
+        internal=$(printf '%s\n' "$monitors" | sed -n '1p')
+    fi
+
+    if [ -n "$internal" ]; then
+        MONITOR="$internal" "$POLYBAR" -r left &
+    fi
+
+    for monitor in $monitors; do
+        [ "$monitor" = "$internal" ] && continue
+        MONITOR="$monitor" "$POLYBAR" -r right &
+    done
+}
+
+current_monitors=$(active_monitors)
+killall -q polybar 2>/dev/null || true
+while pgrep -u "$(id -u)" -x polybar >/dev/null 2>&1; do
+    sleep 1
+done
+start_bars "$current_monitors"
+
+# Rebuild bars when displays are added, removed, or enabled/disabled.
+while :; do
+    sleep "$POLL_INTERVAL"
+    new_monitors=$(active_monitors)
+    if [ "$new_monitors" != "$current_monitors" ]; then
+        killall -q polybar 2>/dev/null || true
+        while pgrep -u "$(id -u)" -x polybar >/dev/null 2>&1; do
+            sleep 1
+        done
+        current_monitors=$new_monitors
+        start_bars "$current_monitors"
+    fi
+done

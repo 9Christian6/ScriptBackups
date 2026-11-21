@@ -7,7 +7,7 @@ fi
 
 sheetNumber="$2"
 
-FILENAME="$(pwd)/$1.tex"
+FILENAME="${pwd}$1.tex"
 cp $HOME/Documents/Uni/LaTeXTemplate.tex $FILENAME
-sed -i "s/SHEETNUMBER/${sheetNumber}/g" "$FILENAME"
+sed -i.bak "s/SHEETNUMBER/${sheetNumber}/g" "$FILENAME"
 nvim $FILENAME

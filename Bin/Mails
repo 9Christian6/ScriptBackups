@@ -1,7 +1,22 @@
 #!/bin/bash
-firefox --kiosk --no-remote --class WebApp --profile /home/christian/snap/firefox/common/.mozilla/firefox/06eme3ou.ProtonMail https://mail.proton.me/u/0/inbox?welcome=true &
-firefox --kiosk --no-remote --class WebApp --profile /home/christian/snap/firefox/common/.mozilla/firefox/wez8lo5s.HIZMail https://webmail.hiz-saarland.de/ &
-thunderbird&
+firefox --kiosk --no-remote --name ProtonMail --profile /home/christian/snap/firefox/common/.mozilla/firefox/06eme3ou.ProtonMail 'https://mail.proton.me/u/0/inbox?welcome=true' &
+firefox --kiosk --no-remote --name HIZMail --profile /home/christian/snap/firefox/common/.mozilla/firefox/wez8lo5s.HIZMail 'https://webmail.hiz-saarland.de/' &
+
+# Firefox kiosk requests fullscreen itself. Once both windows exist, identify
+# them by their actual X11 class and explicitly move them to workspace 12.
+# This also handles Firefox/Snap ignoring the --name instance value.
+for attempt in $(seq 1 20); do
+  firefox_windows=$(xdotool search --class Firefox 2>/dev/null || true)
+  if [ -n "$firefox_windows" ]; then
+    for window_id in $firefox_windows; do
+      i3-msg "[id=$window_id] move to workspace number 12, fullscreen disable, border pixel 1" >/dev/null 2>&1
+      xdotool windowstate --remove FULLSCREEN "$window_id" 2>/dev/null || true
+    done
+  fi
+  sleep 1
+done
+
+thunderbird &
 while [ -z "$(pidof thunderbird-bin)" ]; do
   sleep 1
 done

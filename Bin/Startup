@@ -1,13 +1,7 @@
 #!/bin/bash	
-#exec feh --bg-fill $HOME/Opt/Wallpapers/RoomAtNightCroppedWithBackground.png&
-exec $HOME/Bin/StartAnimation.sh&
-exec picom&
-sleep 1 
-echo 'Finished sleeping'
-python3 $HOME/Bin/inactiveOpacityException.py&
 exec $HOME/.cargo/bin/workstyle&
 exec spotify&
-exec $HOME/Bin/TerminalStartup&
+#exec $HOME/Bin/TerminalStartup&
 exec $HOME/Bin/Mails&
 exec $HOME/Bin/Calendar.sh&
 exec $HOME/Bin/StartSocials.sh&
