@@ -30,6 +30,7 @@ def journal_headers(content: str) -> list[tuple[date, int, int]]:
 
 
 def choose_date(entries: set[date], newest: date) -> date | None:
+    return newest
     missing = reminders.next_missing_date(entries)
     options = {
         f"Continue with newest date ({newest:%d.%m.%Y})": newest,
