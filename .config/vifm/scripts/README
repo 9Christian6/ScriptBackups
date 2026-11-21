@@ -4,3 +4,42 @@ scripts without specifying full path.  All subdirectories are added
 as well.  File in a subdirectory overrules file with the same name
 in parent directories.  Restart might be needed to recognize files
 in newly created or renamed subdirectories.
+Asynchronous previews
+---------------------
+vifmrc registers vifm-preview as the first matching fileviewer for every file
+type. Text uses a plain viewer without graphical coordinates or cleanup;
+only image/media viewers use %px, %py and %pc. A global graphical previewprg
+would make vifm blank even text previews before every redraw.
+The foreground
+command only starts a worker or displays its result; file reads, MIME detection,
+archive listing and thumbnail conversion run outside vifm. A loading message
+remains until the worker asks this vifm instance to redraw via its server name.
+The 90 MiB input limit is retained; converter runtime is limited to 45 seconds,
+text output to 128 KiB, and directory listings to 256 entries.
+
+There is no synchronous graphicsdelay: ueberzug manages its own overlay and
+Kitty previews run separately. Workers wait 120 ms before conversion so files
+passed over during keyboard repeat do not start converters or trigger completion
+redraws. The helper uses Ubuntu's standard-library Python without site startup;
+clear requests avoid converter/process-management imports. Refresh uses the
+running vifm executable through /proc, avoiding repeated AppImage startup.
+
+Each request owns a private temporary directory and process group. Navigation
+cancels unfinished requests, kills converters and their descendants, then removes
+all request files. Completed output survives redraws and is removed on the next
+selection or when vifmrun exits. No incomplete thumbnails enter a shared cache.
+Clear callbacks remove graphics immediately, before vifm repaints the pane as
+text, a directory list, or a dialog. Only cancellation of unfinished conversion
+has a 150 ms grace period, so a matching redraw can reuse the worker/result and
+place the image again. Repeated shows without a clear reuse the image placement
+or Kitty renderer; changing selection and shutting down clean up immediately.
+vifmrun isolates sessions, closes workers on exit, and keeps FIFO operations
+nonblocking. A watchdog cleans up workers if vifm exits unexpectedly or was
+launched directly. Client-server support is required for automatic refresh.
+
+Static images use ueberzug; GIF/WebP and short video animations use kitten icat
+when a terminal is available. Missing converters produce an unavailable message.
+Existing fileviewer commands can still invoke the vifmimg compatibility wrapper.
+
+Run regression checks with:
+    python3 -B -m unittest discover -s tests -v
