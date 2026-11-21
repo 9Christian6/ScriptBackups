@@ -199,13 +199,38 @@ def journal_dates(connection: sqlite3.Connection) -> set[date]:
     }
 
 
-def next_missing_date(entries: set[date], today: date | None = None) -> date:
-    """Find the first gap from the journal's first date, bounded by today."""
+def next_missing_date(entries: set[date], today: date | None = None) -> date | None:
+    """Find the newest missing entry before today at 21:00.
+    
+    Returns None if we're before 21:00 (no reminder needed), or if all dates
+    from yesterday's 21:00 to today are covered by journal entries.
+    """
+    from datetime import datetime, timedelta
+    
     today = today or date.today()
-    candidate = min(entries, default=today)
-    while candidate in entries and candidate <= today:
+    
+    # If we're before 21:00 today, return None (no reminder needed)
+    if datetime.now().hour < 21:
+        return None
+    
+    # Find the latest entry date up to yesterday's 21:00
+    max_entry_date = max((e for e in entries if e <= today), default=today)
+    
+    # If no entries exist, use yesterday as the baseline
+    if max_entry_date > date.min:
+        search_from = min(max_entry_date + timedelta(days=1), today - timedelta(days=1))
+    else:
+        search_from = today - timedelta(days=1)
+    
+    # Search for the first gap before today at 21:00
+    candidate = search_from
+    while candidate <= today:
+        if candidate not in entries:
+            return candidate
         candidate += timedelta(days=1)
-    return min(candidate, today)
+    
+    # No gaps found - nothing missing before 21:00
+    return None
 
 
 def _update_journal_state(connection: sqlite3.Connection) -> None:
@@ -214,17 +239,22 @@ def _update_journal_state(connection: sqlite3.Connection) -> None:
         return
     today = date.today()
     missing = next_missing_date(entries, today)
-    frontier = (
-        today if today in entries and missing == today else missing - timedelta(days=1)
-    )
+    
+    # Handle the case when no missing date is found (before 21:00)
+    if missing is None:
+        frontier = max(today - timedelta(days=1), date.min)
+    elif today in entries and missing == today:
+        frontier = today
+    else:
+        frontier = missing - timedelta(days=1)
     # Today's journal is due in the evening; older gaps stay pending all day.
-    pending = missing < today or (
-        missing == today and today not in entries and datetime.now().hour >= 18
-    )
+    # pending = missing < today or (
+    #     missing == today and today not in entries and datetime.now().hour >= 18
+    # )
     connection.execute(
         """UPDATE event_state SET acknowledged_date = ?, pending = ?
                           WHERE event_id = ?""",
-        (frontier.isoformat(), int(pending), JOURNAL_EVENT_ID),
+        (frontier.isoformat(), int(False), JOURNAL_EVENT_ID),
     )
 
 
